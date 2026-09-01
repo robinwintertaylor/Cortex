@@ -19,6 +19,7 @@ from .facts import fact_to_dict
 from .queue import item_to_dict
 from .search import brain_search
 from .digest import digest as make_digest, render_digest_md
+from .util import parse_since, payload_dict
 
 _templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 app = FastAPI(title="Cortex Dashboard", docs_url=None, redoc_url=None)
@@ -33,6 +34,10 @@ async def _conn():
 async def timeline(request: Request, agent: str | None = None, kind: str | None = None,
                    project: str | None = None, since: str | None = "48h"):
     pool = await _conn()
+    try:
+        since_dt = parse_since(since)
+    except ValueError:
+        since_dt = parse_since("48h")
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
@@ -40,10 +45,10 @@ async def timeline(request: Request, agent: str | None = None, kind: str | None 
             WHERE ($1::text IS NULL OR agent = $1)
               AND ($2::text IS NULL OR kind = $2)
               AND ($3::text IS NULL OR project = $3)
-              AND ts >= now() - $4::interval
+              AND ts >= $4::timestamptz
             ORDER BY ts DESC LIMIT 200
             """,
-            agent, kind, project, _pg_interval(since),
+            agent, kind, project, since_dt,
         )
         agents = [r["id"] for r in await conn.fetch("SELECT id FROM agents ORDER BY id")]
     events = [record_to_dict(r) for r in rows]
@@ -52,17 +57,6 @@ async def timeline(request: Request, agent: str | None = None, kind: str | None 
             "agent": agent or "", "kind": kind or "", "project": project or "",
             "since": since or "48h"},
     })
-
-
-def _pg_interval(since: str | None) -> str:
-    import re
-
-    m = re.match(r"^(\d+)\s*([smhdw])", since or "48h")
-    if not m:
-        return "48 hours"
-    n, unit = int(m.group(1)), m.group(2).lower()
-    unit = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days", "w": "weeks"}[unit]
-    return f"{n} {unit}"
 
 
 @app.get("/search", response_class=HTMLResponse)
@@ -102,7 +96,7 @@ async def decisions(request: Request):
                     else:
                         break
                     seen += 1
-            p = ev["payload"] or {}
+            p = payload_dict(ev["payload"])
             out.append({
                 "adr": p.get("adr") or f"D-{ev['id']}", "title": p.get("title", ""),
                 "choice": p.get("choice", ""), "agent": ev["agent"],

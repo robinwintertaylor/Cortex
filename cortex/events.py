@@ -12,7 +12,7 @@ from typing import Any
 
 import asyncpg
 
-from .util import parse_since
+from .util import parse_since, payload_dict
 
 KINDS = ("action", "decision", "lesson", "research", "note", "question",
           "queue_claim", "queue_complete")
@@ -72,7 +72,7 @@ def record_to_dict(r: asyncpg.Record) -> dict[str, Any]:
         "session": r["session"],
         "kind": r["kind"],
         "project": r["project"],
-        "payload": r["payload"],
+        "payload": payload_dict(r["payload"]),
     }
 
 

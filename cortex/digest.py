@@ -17,7 +17,7 @@ from .events import recent
 from .facts import active_decisions, changed_since, fact_to_dict
 from .notes import lessons_since, top_lessons
 from .queue import open_items
-from .util import parse_since, trunc
+from .util import parse_since, payload_dict, trunc
 
 
 async def digest(conn: asyncpg.Connection, since: str | None = None) -> dict[str, Any]:
@@ -32,11 +32,12 @@ async def digest(conn: asyncpg.Connection, since: str | None = None) -> dict[str
 
     by_agent: dict[str, list[dict]] = {}
     for r in actions:
+        p = payload_dict(r["payload"])
         by_agent.setdefault(r["agent"], []).append({
             "event_id": r["id"],
             "ts": r["ts"].isoformat(),
-            "summary": (r["payload"] or {}).get("summary", ""),
-            "outcome": (r["payload"] or {}).get("outcome", ""),
+            "summary": p.get("summary", ""),
+            "outcome": p.get("outcome", ""),
             "project": r["project"],
         })
 
@@ -53,9 +54,9 @@ async def digest(conn: asyncpg.Connection, since: str | None = None) -> dict[str
         "new_decisions": [
             {
                 "event_id": r["id"],
-                "adr": (r["payload"] or {}).get("adr") or f"D-{r['id']}",
-                "title": (r["payload"] or {}).get("title", ""),
-                "choice": (r["payload"] or {}).get("choice", ""),
+                "adr": payload_dict(r["payload"]).get("adr") or f"D-{r['id']}",
+                "title": payload_dict(r["payload"]).get("title", ""),
+                "choice": payload_dict(r["payload"]).get("choice", ""),
                 "agent": r["agent"],
                 "project": r["project"],
             }
@@ -68,7 +69,7 @@ async def digest(conn: asyncpg.Connection, since: str | None = None) -> dict[str
             for r in lessons
         ],
         "open_questions": [
-            {"event_id": r["id"], "title": (r["payload"] or {}).get("title", ""), "agent": r["agent"]}
+            {"event_id": r["id"], "title": payload_dict(r["payload"]).get("title", ""), "agent": r["agent"]}
             for r in questions
         ],
         "open_queue": [
@@ -154,7 +155,7 @@ async def context(conn: asyncpg.Connection, project: str | None = None,
         "dossier": dossier,
         "active_decisions": [
             {
-                "adr": (e["payload"] or {}).get("adr") or f"D-{e['id']}",
+                "adr": f"D-{f['episode_id']}" if f["episode_id"] is not None else None,
                 "subject": f["subj_name"],
                 "choice": f["obj_text"],
                 "rationale": f["rationale"],
@@ -171,8 +172,12 @@ async def context(conn: asyncpg.Connection, project: str | None = None,
                 "id": r["id"],
                 "agent": r["agent"],
                 "kind": r["kind"],
-                "summary": trunc((r["payload"] or {}).get("summary") or
-                                  (r["payload"] or {}).get("title") or str(r["payload"]), 120),
+                "summary": trunc(
+                    payload_dict(r["payload"]).get("summary")
+                    or payload_dict(r["payload"]).get("title")
+                    or str(payload_dict(r["payload"])),
+                    120,
+                ),
                 "ts": r["ts"].isoformat(),
             }
             for r in evs

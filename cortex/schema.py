@@ -169,4 +169,6 @@ STATEMENTS_TEMPLATE = [
 
 
 def ddl_statements(dim: int) -> list[str]:
-    return [s.format(dim=dim) for s in STATEMENTS_TEMPLATE]
+    # str.replace, not str.format: SQL uses '{}' for empty arrays and
+    # json_build_object keys that .format() would treat as placeholders.
+    return [s.replace("{dim}", str(dim)) for s in STATEMENTS_TEMPLATE]

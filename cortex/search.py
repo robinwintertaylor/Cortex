@@ -16,6 +16,7 @@ from . import metrics, notes as notes_mod
 from .embeddings import embed_one, rerank_scores
 from .events import fts_search as events_fts
 from .facts import fact_to_dict
+from .util import payload_dict
 
 RRF_K = 60  # standard k for reciprocal-rank fusion
 RECENCY_TAU_DAYS = 30.0
@@ -51,7 +52,7 @@ def rrf_fuse(ranked_lists: list[list[tuple[str, dict[str, Any]]]], k: int = RRF_
 
 
 def _event_result(r: asyncpg.Record) -> dict[str, Any]:
-    payload = dict(r["payload"]) if r["payload"] else {}
+    payload = payload_dict(r["payload"])
     kind = r["kind"]
     if kind == "decision":
         disp_id = payload.get("adr") or f"D-{r['id']}"
@@ -119,15 +120,14 @@ async def _graph_expansion(
     if not entities:
         return []
     ids = [e["id"] for e in entities]
-    placeholders = ", ".join(f"${i + 1}" for i in range(len(ids)))
     rows = await conn.fetch(
-        f"""
+        """
         SELECT f.* FROM facts f
-        WHERE (f.subj IN ({placeholders}) OR f.obj IN ({placeholders}))
+        WHERE (f.subj = ANY($1::uuid[]) OR f.obj = ANY($1::uuid[]))
           AND f.valid_to IS NULL
         ORDER BY f.confidence DESC LIMIT 20
         """,
-        *(ids + ids),  # placeholders appear twice: once for subj, once for obj
+        ids,
     )
     out: list[tuple[str, dict[str, Any]]] = []
     for r in rows:

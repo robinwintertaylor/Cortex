@@ -25,11 +25,25 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgres://cortex:cortex@db:5432/cortex
+      HF_HOME: /tmp/huggingface
+      XDG_CACHE_HOME: /tmp/cache
+      FASTEMBED_CACHE_PATH: /tmp/fastembed
     depends_on:
       db:
         condition: service_healthy
     ports:
       - "8738:8738"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8738/healthz')",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     restart: always
 
   librarian:
@@ -38,11 +52,14 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgres://cortex:cortex@db:5432/cortex
+      HF_HOME: /tmp/huggingface
+      XDG_CACHE_HOME: /tmp/cache
+      FASTEMBED_CACHE_PATH: /tmp/fastembed
     depends_on:
       db:
         condition: service_healthy
       cortex:
-        condition: service_started
+        condition: service_healthy
     restart: always
 
   dashboard:
@@ -52,8 +69,12 @@ services:
     environment:
       DATABASE_URL: postgres://cortex:cortex@db:5432/cortex
       CORTEX_INTERNAL_URL: http://cortex:8738
+      HF_HOME: /tmp/huggingface
+      XDG_CACHE_HOME: /tmp/cache
+      FASTEMBED_CACHE_PATH: /tmp/fastembed
     depends_on:
-      - cortex
+      cortex:
+        condition: service_healthy
     ports:
       - "8740:8740"
     restart: always

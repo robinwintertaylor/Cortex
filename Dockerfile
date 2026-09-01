@@ -2,6 +2,10 @@ FROM python:3.12-slim
 
 WORKDIR /srv/cortex
 
+# onnxruntime (fastembed) needs libgomp
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install the package + dependencies first for layer caching
 COPY pyproject.toml README.md ./
 COPY cortex ./cortex

@@ -17,10 +17,26 @@ async def _init_conn(conn: asyncpg.Connection) -> None:
     await register_vector(conn)
 
 
+async def _ensure_extensions(dsn: str) -> None:
+    """Install vector/pgcrypto before the pool init callback.
+
+    pgvector's register_vector looks up the `vector` type OID. On a fresh
+    database that type does not exist until CREATE EXTENSION runs, so pool
+    creation would otherwise fail and migrate would never execute.
+    """
+    conn = await asyncpg.connect(dsn)
+    try:
+        await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        await conn.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
+    finally:
+        await conn.close()
+
+
 async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
         cfg = get_config()
+        await _ensure_extensions(cfg.database_url)
         _pool = await asyncpg.create_pool(
             cfg.database_url,
             min_size=1,

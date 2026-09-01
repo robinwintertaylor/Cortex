@@ -13,7 +13,6 @@ Run with: python -m cortex.librarian.worker
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
 from datetime import datetime, timezone
 
@@ -23,6 +22,7 @@ from .. import metrics, notes as notes_mod, queue as queue_mod
 from ..config import get_config
 from ..db import get_pool, migrate
 from ..embeddings import embed
+from ..util import payload_dict
 from ..facts import (
     add_fact,
     bump_confidence,
@@ -37,8 +37,7 @@ log = get_logger(__name__)
 
 
 def _payload(event) -> dict:
-    p = event["payload"]
-    return p if isinstance(p, dict) else json.loads(p or "{}")
+    return payload_dict(event["payload"])
 
 
 async def _embed_event_text(conn, event) -> None:

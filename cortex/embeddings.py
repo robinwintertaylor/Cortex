@@ -18,14 +18,31 @@ _model = None
 _failed = False
 
 
+def _resolve_embed_model(text_embedding_cls) -> str:
+    """fastembed 0.8 dropped BAAI/bge-m3 from TextEmbedding; keep 1024-d fallback."""
+    requested = get_config().embed_model
+    supported = {m.get("model") for m in text_embedding_cls.list_supported_models()}
+    if requested in supported:
+        return requested
+    fallback = "BAAI/bge-large-en-v1.5"
+    if get_config().embed_dim == 1024 and fallback in supported:
+        log.warning(
+            "embed model %s is not a TextEmbedding model; falling back to %s",
+            requested, fallback,
+        )
+        return fallback
+    raise ValueError(f"embed model {requested!r} is not supported by TextEmbedding")
+
+
 def _get_model():
     global _model, _failed
     if _model is None and not _failed:
         try:
             from fastembed import TextEmbedding
 
-            _model = TextEmbedding(model_name=get_config().embed_model)
-            log.info("embed model loaded", extra={"err": get_config().embed_model})
+            name = _resolve_embed_model(TextEmbedding)
+            _model = TextEmbedding(model_name=name)
+            log.info("embed model loaded", extra={"err": name})
         except Exception:
             _failed = True
             log.exception("embed model failed to load — vector search degraded, FTS still works")

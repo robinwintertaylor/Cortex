@@ -12,11 +12,11 @@ import asyncpg
 
 from .digest import digest as make_digest, render_digest_md
 from .facts import fact_to_dict
-from .util import parse_since, slugify
+from .util import parse_since, payload_dict, slugify
 
 
 def _adr_md(event, fact) -> str:
-    p = event["payload"] if isinstance(event["payload"], dict) else {}
+    p = payload_dict(event["payload"])
     adr = p.get("adr") or f"D-{event['id']}"
     lines = [
         f"# {adr}: {p.get('title', '')}",
@@ -65,7 +65,7 @@ def _dossier_md(project, facts, decisions, lessons, recent) -> str:
     lines += [f"- {l['statement']}" for l in lessons] or ["_none_"]
     lines += ["", "## Recent activity", ""]
     lines += [f"- `{r['ts']}` **{r['agent']}** {r['kind']}: "
-              f"{(r['payload'] or {}).get('summary', '')} [E#{r['id']}]"
+              f"{payload_dict(r['payload']).get('summary', '')} [E#{r['id']}]"
               for r in recent][:30] or ["_none_"]
     return "\n".join(lines)
 
@@ -89,8 +89,9 @@ async def export_markdown(conn: asyncpg.Connection, out: Path, since_days: int =
             "SELECT * FROM facts WHERE episode_id = $1 ORDER BY valid_from DESC LIMIT 1",
             ev["id"],
         )
-        adr = (ev["payload"] or {}).get("adr") or f"D-{ev['id']}"
-        title = (ev["payload"] or {}).get("title") or "decision"
+        p = payload_dict(ev["payload"])
+        adr = p.get("adr") or f"D-{ev['id']}"
+        title = p.get("title") or "decision"
         path = decisions_dir / f"{adr}-{slugify(title)}.md"
         path.write_text(_adr_md(ev, fact), encoding="utf-8")
         written.append(str(path))
@@ -115,9 +116,11 @@ async def export_markdown(conn: asyncpg.Connection, out: Path, since_days: int =
             project,
         )
         dec_dicts = [
-            {"adr": (d["payload"] or {}).get("adr") or f"D-{d['id']}",
-             "title": (d["payload"] or {}).get("title", ""),
-             "choice": (d["payload"] or {}).get("choice", "")}
+            {
+                "adr": payload_dict(d["payload"]).get("adr") or f"D-{d['id']}",
+                "title": payload_dict(d["payload"]).get("title", ""),
+                "choice": payload_dict(d["payload"]).get("choice", ""),
+            }
             for d in decisions
         ]
         lessons = await conn.fetch(

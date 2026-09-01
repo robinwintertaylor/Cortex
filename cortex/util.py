@@ -39,5 +39,22 @@ def dump_pg_json(obj: Any) -> str:
     return json.dumps(obj, default=str)
 
 
+def payload_dict(value: Any) -> dict[str, Any]:
+    """Normalize event payload. asyncpg returns jsonb as str without a codec."""
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, (bytes, bytearray)):
+        value = value.decode()
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
 def trunc(s: str, n: int) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"

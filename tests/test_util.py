@@ -39,6 +39,16 @@ def test_trunc():
     assert trunc("abc", 10) == "abc"
 
 
+def test_payload_dict_normalizes_jsonb_strings():
+    from cortex.util import payload_dict
+
+    assert payload_dict({"title": "x"}) == {"title": "x"}
+    assert payload_dict('{"title": "x"}') == {"title": "x"}
+    assert payload_dict(None) == {}
+    assert payload_dict("not-json") == {}
+    assert payload_dict("[1, 2]") == {}
+
+
 def test_hook_idempotency_deterministic():
     p = {"session_id": "s-1", "hook_event_uuid": "u-9", "hook_event_name": "PostToolUse"}
     k1 = hook_idempotency_key(p)
