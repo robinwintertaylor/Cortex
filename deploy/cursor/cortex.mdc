@@ -1,0 +1,27 @@
+---
+description: Shared brain protocol (Cortex) — session bootstrap, search before deciding, log outcomes
+alwaysApply: true
+---
+# Shared brain protocol (Cortex)
+
+This machine has a shared second brain — the Cortex memory service — shared by
+all agent harnesses (Cursor, DSH, Claude Code, Goose, Vibe, VS Code). The
+`brain_*` MCP tools (server: cortex) are wired in.
+
+1. AT TASK START: call `brain_context` (with the project name) and
+   `brain_recent(limit 20)`. Acknowledge what other agents already did — do
+   not redo or contradict their work.
+2. BEFORE non-trivial choices: call `brain_search("<topic>")`. Do not re-decide
+   decided things; if an active decision exists, follow it or write a
+   superseding decision first (with rationale).
+3. AS YOU WORK: capture useful external research with `brain_capture_url`.
+4. AT TASK END: call `brain_log_action` with summary + outcome + files. If you
+   learned a durable lesson, `brain_lesson`. If you made a decision,
+   `brain_log_decision(title, options, choice, rationale, project)`.
+5. Check `brain_queue` — claim and complete tasks that match your mission
+   (`brain_queue_claim` / `brain_queue_complete`).
+6. Never invent facts about other agents' actions — read them from
+   `brain_recent` / `brain_digest` and cite event ids.
+
+Your identity is enforced server-side from your API key: you write as `cursor`
+and only as `cursor`.

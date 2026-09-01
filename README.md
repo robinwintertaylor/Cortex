@@ -1,7 +1,8 @@
 # Cortex — a shared second brain for multiple agent harnesses
 
 Self-hosted memory service that lets Claude Code, Claude Desktop, DeepSeek
-Harness (dsh), Mistral Vibe, Goose, scripts/cron — and you — share one brain.
+Harness (dsh), Mistral Vibe, Goose, Cursor, VS Code (Copilot), scripts/cron —
+and you — share one brain.
 
 **Design tenets** (from `plans/prd-cortex.md`):
 
@@ -93,6 +94,8 @@ Every MCP tool mirrors these 1:1 (`brain_context`, `brain_search`, `brain_recent
 | Goose | `deploy/goose/` — extension + Open Plugins `hooks.json` + MOIM feed |
 | DeepSeek Harness | `deploy/dsh/` — cordis.yml `dsh-mcp-client` + `brain` wrapper + AGENTS.md |
 | Scripts/cron | REST (`scripts/brain`, `cortex sweep`, `scripts/backup.sh`) |
+| Cursor | `deploy/cursor/` — MCP server in `mcp.json` + always-applied project rule (constitution-prompted logging) |
+| VS Code (Copilot) | `deploy/vscode/` — MCP server in `.vscode/mcp.json` + `AGENTS.md` protocol |
 | Buzz (P2) | `deploy/buzz/` — one-way digest bridge only |
 
 The shared constitution (session protocol every agent follows) is
