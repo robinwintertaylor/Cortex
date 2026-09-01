@@ -91,7 +91,7 @@ async def note(conn, agent: asyncpg.Record, *, title: str, body: str,
             conn,
             agent=agent["id"], kind="note",
             harness=agent["harness"], session=session, project=project,
-            payload={"title": trunc(title, 500), "note": trunc(body, 8000),
+            payload={"title": trunc(title, 500), "note": trunc(body, 200_000),
                      "tags": tags or []},
         )
         n = await notes.create_note(
