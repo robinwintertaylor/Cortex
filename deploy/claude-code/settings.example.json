@@ -1,0 +1,44 @@
+{
+  "$comment": "Merge into ~/.claude/settings.json. Set CORTEX_URL + token inline (this file is local-only). Adjust ?agent= if you run multiple Claude Code machines.",
+  "env": {
+    "CORTEX_URL": "http://cortex.local:8738",
+    "CORTEX_HOOK_TOKEN": "change-me-too"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -sf -H \"X-Cortex-Hook-Token: $CORTEX_HOOK_TOKEN\" \"$CORTEX_URL/v1/brain_digest?since=48h&fmt=md\" || true"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://cortex.local:8738/hook/tool-use?agent=claude-code",
+            "headers": { "X-Cortex-Hook-Token": "change-me-too" },
+            "timeout": 2000
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://cortex.local:8738/hook/session-end?agent=claude-code",
+            "headers": { "X-Cortex-Hook-Token": "change-me-too" },
+            "timeout": 2000
+          }
+        ]
+      }
+    ]
+  }
+}

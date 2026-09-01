@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+{% for d in decisions %}
+<div class="card">
+  <div>
+    <span class="tag">{{ d.adr }}</span>
+    <b>{{ d.title }}</b>
+    {% if d.status == "active" %}<span class="ok">→ {{ d.choice }} (active)</span>
+    {% else %}<span class="bad">(superseded)</span>{% endif %}
+  </div>
+  <div class="score">{{ d.agent }} · {{ d.project or "" }} · {{ d.ts }}</div>
+  {% if d.chain %}
+  <div class="dim" style="margin-top:6px">supersession chain:</div>
+  <ol style="margin:4px 0">
+    {% for f in d.chain %}
+    <li class="dim">{{ f.subject }} {{ f.predicate }} <b>{{ f.object }}</b>
+      {% if f.status == "active" %}<span class="ok">current</span>{% else %}<span class="bad">superseded {{ f.valid_to[:10] }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+</div>
+{% else %}
+<p class="dim">no decisions recorded yet</p>
+{% endfor %}
+{% endblock %}

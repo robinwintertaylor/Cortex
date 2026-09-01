@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<form class="inline" method="get" action="/search">
+  <input class="wide" type="text" name="q" placeholder="search the brain…" value="{{ q }}">
+  <select name="mode">
+    {% for m in ["hybrid","keyword","semantic","rerank"] %}
+      <option value="{{ m }}" {% if mode == m %}selected{% endif %}>{{ m }}</option>
+    {% endfor %}
+  </select>
+  <button>search</button>
+</form>
+{% for r in results %}
+<div class="card">
+  <div>
+    <span class="tag">{{ r.type }}</span>
+    {% if r.url %}<a style="color:var(--accent)" href="{{ r.url }}">{{ r.title }}</a>
+    {% else %}<b>{{ r.title }}</b>{% endif %}
+    <span class="score">score {{ r.score }} · {{ r.id }}</span>
+  </div>
+  <div class="dim">{{ r.snippet[:220] }}</div>
+  <div class="score">{{ r.provenance.agent }} · {{ r.provenance.ts[:19] }} ·
+    {% if r.status == "active" %}<span class="ok">active</span>{% else %}<span class="bad">{{ r.status }}</span>{% endif %}
+  </div>
+</div>
+{% else %}
+{% if q %}<p class="dim">no results for “{{ q }}”</p>{% endif %}
+{% endfor %}
+{% endblock %}

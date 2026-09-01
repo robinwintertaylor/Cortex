@@ -1,0 +1,12 @@
+{
+  "$comment": "Claude Desktop only accepts local stdio servers in this config. The bridge (scripts/cortex-mcp-stdio) delegates every tool call to the Cortex HTTP API. Install: cp scripts/cortex-mcp-stdio /usr/local/bin/ && chmod +x. Restart Desktop after editing; logs at ~/Library/Logs/Claude/mcp.log (macOS).",
+  "mcpServers": {
+    "cortex": {
+      "command": "/usr/local/bin/cortex-mcp-stdio",
+      "env": {
+        "CORTEX_URL": "http://cortex.local:8738",
+        "CORTEX_KEY": "cx-claude-desktop-<secret>"
+      }
+    }
+  }
+}

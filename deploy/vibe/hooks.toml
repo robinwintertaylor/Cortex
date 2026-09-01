@@ -1,0 +1,41 @@
+# .vibe/hooks.toml — auto-write events to Cortex (agent=vibe).
+# Place in the project dir (trusted) or ~/.vibe/hooks.toml (user-level).
+# Set CORTEX_HOOK_TOKEN in the environment Vibe runs under.
+
+[[hooks]]
+type = "post_tool"
+command = """
+python3 -c "
+import json, os, sys, urllib.request
+p = json.load(sys.stdin)
+p['agent'] = 'vibe'
+req = urllib.request.Request(
+    os.environ.get('CORTEX_URL', 'http://cortex.local:8738') + '/hook/tool-use?agent=vibe',
+    data=json.dumps(p).encode(),
+    headers={'Content-Type': 'application/json',
+             'X-Cortex-Hook-Token': os.environ.get('CORTEX_HOOK_TOKEN', '')})
+try:
+    urllib.request.urlopen(req, timeout=2)
+except Exception:
+    pass
+"
+"""
+
+[[hooks]]
+type = "post_agent"
+command = """
+python3 -c "
+import json, os, sys, urllib.request
+p = json.load(sys.stdin)
+p['agent'] = 'vibe'
+req = urllib.request.Request(
+    os.environ.get('CORTEX_URL', 'http://cortex.local:8738') + '/hook/session-end?agent=vibe',
+    data=json.dumps(p).encode(),
+    headers={'Content-Type': 'application/json',
+             'X-Cortex-Hook-Token': os.environ.get('CORTEX_HOOK_TOKEN', '')})
+try:
+    urllib.request.urlopen(req, timeout=2)
+except Exception:
+    pass
+"
+"""

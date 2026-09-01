@@ -1,0 +1,62 @@
+# Cortex — self-hosted shared second brain (PRD: plans/prd-cortex.md)
+# One node, docker-compose. Data survives via the pgdata volume.
+# See README.md for harness wiring and backup/restore drill.
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: cortex
+      POSTGRES_PASSWORD: cortex
+      POSTGRES_DB: cortex
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cortex -d cortex"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: always
+
+  cortex:
+    build: .
+    command: uvicorn cortex.api.app:app --host 0.0.0.0 --port 8738
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://cortex:cortex@db:5432/cortex
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8738:8738"
+    restart: always
+
+  librarian:
+    build: .
+    command: python -m cortex.librarian.worker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://cortex:cortex@db:5432/cortex
+    depends_on:
+      db:
+        condition: service_healthy
+      cortex:
+        condition: service_started
+    restart: always
+
+  dashboard:
+    build: .
+    command: uvicorn cortex.dashboard:app --host 0.0.0.0 --port 8740
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://cortex:cortex@db:5432/cortex
+      CORTEX_INTERNAL_URL: http://cortex:8738
+    depends_on:
+      - cortex
+    ports:
+      - "8740:8740"
+    restart: always
+
+volumes:
+  pgdata: {}

@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# brain — thin shell wrapper over the Cortex REST API (Plan 2 §9.4).
+# Used by the DSH bash tool, headless wrappers, and humans.
+#
+#   export CORTEX_URL=http://cortex.local:8738
+#   export CORTEX_KEY=cx-<agent-id>-<secret>
+#
+#   brain context [project]
+#   brain search <query...>
+#   brain recent [since] [limit]
+#   brain digest [since]
+#   brain read <id>
+#   brain log-action <summary> [--outcome ...] [--project ...] [--files a,b]
+#   brain log-decision <title> --choice ... --options a,b,c [--rationale ...] [--project ...]
+#   brain lesson <statement...> [--project ...] [--verified-by ...]
+#   brain note <title> --body ... [--tags a,b] [--project ...]
+#   brain capture <url> [--note ...]
+#   brain entities [query]
+#   brain facts-about <entity>
+#   brain queue                          # list open items
+#   brain queue-add <title> [--project ...]
+#   brain queue-claim <item_id>
+#   brain queue-complete <item_id>
+#   brain agents
+set -euo pipefail
+
+CORTEX_URL="${CORTEX_URL:-http://localhost:8738}"
+CORTEX_KEY="${CORTEX_KEY:?set CORTEX_KEY (your agent key)}"
+cmd="${1:-help}"; shift || true
+
+api() { # api METHOD PATH [json]
+  local method="$1" path="$2" body="${3:-}"
+  if [[ -n "$body" ]]; then
+    curl -sf -X "$method" -H "Authorization: Bearer $CORTEX_KEY" \
+      -H "Content-Type: application/json" -d "$body" "$CORTEX_URL$path"
+  else
+    curl -sf -X "$method" -H "Authorization: Bearer $CORTEX_KEY" "$CORTEX_URL$path"
+  fi
+}
+
+json_escape() { python3 -c 'import json,sys; print(json.dumps(" ".join(sys.argv[1:])))' "$@"; }
+
+case "$cmd" in
+  context)   api GET "/v1/brain_context${1:+?project=$1}" ;;
+  search)    api GET "/v1/brain_search?q=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(" ".join(sys.argv[1:])))' "$@")&limit=8" ;;
+  recent)    api GET "/v1/brain_recent?since=${1:-24h}&limit=${2:-20}" ;;
+  digest)    api GET "/v1/brain_digest?since=${1:-48h}" ;;
+  read)      api GET "/v1/brain_read/$1" ;;
+  log-action)
+    summary="$(json_escape "$1")"; shift
+    outcome=""; project=""; files="[]"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --outcome) outcome="$2"; shift 2 ;;
+        --project) project="$2"; shift 2 ;;
+        --files)   files="[\"$(echo "$2" | tr ',' '","')\"]"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    api POST /v1/brain_log_action "{\"summary\":$summary,\"outcome\":\"$outcome\",\"project\":\"$project\",\"files\":$files}" ;;
+  log-decision)
+    title="$(json_escape "$1")"; shift
+    choice=""; options="[]"; rationale=""; project=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --choice)   choice="$2"; shift 2 ;;
+        --options)  options="[\"$(echo "$2" | tr ',' '","')\"]"; shift 2 ;;
+        --rationale) rationale="$(json_escape "$2")"; shift 2 ;;
+        --project)  project="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    api POST /v1/brain_log_decision "{\"title\":$title,\"options\":$options,\"choice\":\"$choice\",\"rationale\":$rationale,\"project\":\"$project\"}" ;;
+  lesson)
+    statement="$(json_escape "$1")"; shift
+    project=""; verified=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --project)    project="$2"; shift 2 ;;
+        --verified-by) verified="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    api POST /v1/brain_lesson "{\"statement\":$statement,\"verified_by\":\"$verified\",\"project\":\"$project\"}" ;;
+  note)
+    title="$(json_escape "$1")"; shift
+    body=""; tags="[]"; project=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --body)   body="$(json_escape "$2")"; shift 2 ;;
+        --tags)   tags="[\"$(echo "$2" | tr ',' '","')\"]"; shift 2 ;;
+        --project) project="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    api POST /v1/brain_note "{\"title\":$title,\"body\":$body,\"tags\":$tags,\"project\":\"$project\"}" ;;
+  capture)
+    url="$1"; note=""; shift
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --note) note="$(json_escape "$2")"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    api POST /v1/brain_capture_url "{\"url\":\"$url\",\"note\":$note}" ;;
+  entities)  api GET "/v1/brain_entities${1:+?query=$1}" ;;
+  facts-about) api GET "/v1/brain_facts_about?entity=$1" ;;
+  queue)     api GET "/v1/brain_queue" ;;
+  queue-add) api POST /v1/brain_queue_add "{\"title\":\"$1\",\"project\":\"${2:-}\"}" ;;
+  queue-claim)   api POST /v1/brain_queue_claim "{\"item_id\":\"$1\"}" ;;
+  queue-complete) api POST /v1/brain_queue_complete "{\"item_id\":\"$1\"}" ;;
+  agents)    api GET /v1/brain_agents ;;
+  health)    api GET /healthz ;;
+  help|-h|--help|*) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//' ;;
+esac
+echo

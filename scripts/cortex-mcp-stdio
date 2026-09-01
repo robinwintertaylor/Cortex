@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+"""cortex-mcp-stdio — stdio bridge for Claude Desktop (FR-7 AC2).
+
+Claude Desktop's config file only accepts local stdio servers, so this bridge
+exposes the same brain_* tools over stdio while delegating every call to the
+Cortex HTTP API. Set CORTEX_URL + CORTEX_KEY in the env block of
+claude_desktop_config.json.
+
+Usage in claude_desktop_config.json:
+{
+  "mcpServers": {
+    "cortex": {
+      "command": "/usr/local/bin/cortex-mcp-stdio",
+      "env": { "CORTEX_URL": "http://cortex.local:8738", "CORTEX_KEY": "cx-..." }
+    }
+  }
+}
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from typing import Any
+
+import httpx
+
+try:
+    from mcp.server.fastmcp import FastMCP  # mcp SDK v1
+except ModuleNotFoundError:  # mcp SDK v2 renamed FastMCP → MCPServer
+    from mcp.server.mcpserver import MCPServer as FastMCP
+
+URL = os.environ.get("CORTEX_URL", "http://localhost:8738").rstrip("/")
+KEY = os.environ.get("CORTEX_KEY", "")
+
+mcp = FastMCP("cortex")
+
+
+def _api(path: str, payload: dict | None = None) -> dict:
+    with httpx.Client(timeout=60) as client:
+        if payload is None:
+            r = client.get(f"{URL}{path}", headers={"Authorization": f"Bearer {KEY}"})
+        else:
+            r = client.post(f"{URL}{path}", json=payload,
+                            headers={"Authorization": f"Bearer {KEY}"})
+        r.raise_for_status()
+        return r.json()
+
+
+@mcp.tool()
+def brain_context(project: str | None = None) -> dict:
+    """Bootstrap bundle: project dossier + active decisions + top lessons + recent events."""
+    return _api(f"/v1/brain_context{f'?project={project}' if project else ''}")
+
+
+@mcp.tool()
+def brain_search(query: str, mode: str = "hybrid", limit: int = 10) -> dict:
+    """Hybrid search (BM25 + vector + graph, RRF fusion)."""
+    return _api("/v1/brain_search", {"query": query, "mode": mode, "limit": limit})
+
+
+@mcp.tool()
+def brain_recent(agent: str | None = None, since: str | None = None, limit: int = 50) -> dict:
+    """Recent events — what did the other agents do?"""
+    return _api("/v1/brain_recent", {"agent": agent, "since": since, "limit": limit})
+
+
+@mcp.tool()
+def brain_digest(since: str | None = None) -> dict:
+    """Grouped digest of changes since a timestamp."""
+    return _api("/v1/brain_digest", {"since": since})
+
+
+@mcp.tool()
+def brain_read(id: str) -> dict:
+    """Fetch a full artifact (E-<n>, D-<n>, L-<n>, or note/fact UUID)."""
+    return _api(f"/v1/brain_read/{id}")
+
+
+@mcp.tool()
+def brain_log_action(summary: str, outcome: str | None = None,
+                     files: list[str] | None = None, project: str | None = None) -> dict:
+    """Append an action event."""
+    return _api("/v1/brain_log_action", {"summary": summary, "outcome": outcome,
+                                        "files": files, "project": project})
+
+
+@mcp.tool()
+def brain_log_decision(title: str, options: list[str], choice: str,
+                       rationale: str | None = None, project: str | None = None) -> dict:
+    """Record a decision (ADR event + fact)."""
+    return _api("/v1/brain_log_decision", {"title": title, "options": options,
+                                          "choice": choice, "rationale": rationale,
+                                          "project": project})
+
+
+@mcp.tool()
+def brain_lesson(statement: str, verified_by: str | None = None,
+                project: str | None = None) -> dict:
+    """Record a durable lesson."""
+    return _api("/v1/brain_lesson", {"statement": statement, "verified_by": verified_by,
+                                     "project": project})
+
+
+@mcp.tool()
+def brain_note(title: str, body: str, tags: list[str] | None = None,
+               project: str | None = None) -> dict:
+    """Create a note in the shared brain."""
+    return _api("/v1/brain_note", {"title": title, "body": body, "tags": tags,
+                                   "project": project})
+
+
+@mcp.tool()
+def brain_capture_url(url: str, note: str | None = None) -> dict:
+    """Capture a URL: fetch, extract, summarize, store as a searchable clipping."""
+    return _api("/v1/brain_capture_url", {"url": url, "note": note})
+
+
+@mcp.tool()
+def brain_entities(query: str | None = None) -> dict:
+    """Entity directory."""
+    return _api(f"/v1/brain_entities{f'?query={query}' if query else ''}")
+
+
+@mcp.tool()
+def brain_facts_about(entity: str) -> dict:
+    """Current facts for an entity."""
+    return _api(f"/v1/brain_facts_about?entity={entity}")
+
+
+@mcp.tool()
+def brain_queue_add(title: str, project: str | None = None) -> dict:
+    """Add a task to the shared queue."""
+    return _api("/v1/brain_queue_add", {"title": title, "project": project})
+
+
+@mcp.tool()
+def brain_queue_claim(item_id: str) -> dict:
+    """Claim an open task."""
+    return _api("/v1/brain_queue_claim", {"item_id": item_id})
+
+
+@mcp.tool()
+def brain_queue_complete(item_id: str) -> dict:
+    """Complete your claimed task."""
+    return _api("/v1/brain_queue_complete", {"item_id": item_id})
+
+
+@mcp.tool()
+def brain_agents() -> dict:
+    """Agent directory + last-seen."""
+    return _api("/v1/brain_agents")
+
+
+if __name__ == "__main__":
+    mcp.run(transport="stdio")

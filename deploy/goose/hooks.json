@@ -1,0 +1,23 @@
+{
+  "$comment": "Open Plugins hooks (spec: ~/.agents/plugins/<name>/hooks/hooks.json). Events → /hook/* sinks with the shared token. 30s timeout per spec; we fail silently so hooks never block the agent.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "curl -sf -X POST 'http://cortex.local:8738/hook/tool-use?agent=goose' -H 'X-Cortex-Hook-Token: %env:CORTEX_HOOK_TOKEN%' -H 'Content-Type: application/json' --data-binary @- >/dev/null || true"
+      }
+    ],
+    "AfterFileEdit": [
+      {
+        "type": "command",
+        "command": "curl -sf -X POST 'http://cortex.local:8738/hook/tool-use?agent=goose' -H 'X-Cortex-Hook-Token: %env:CORTEX_HOOK_TOKEN%' -H 'Content-Type: application/json' --data-binary @- >/dev/null || true"
+      }
+    ],
+    "SessionEnd": [
+      {
+        "type": "command",
+        "command": "curl -sf -X POST 'http://cortex.local:8738/hook/session-end?agent=goose' -H 'X-Cortex-Hook-Token: %env:CORTEX_HOOK_TOKEN%' -H 'Content-Type: application/json' --data-binary @- >/dev/null || true"
+      }
+    ]
+  }
+}

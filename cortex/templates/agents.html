@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+<table>
+  <tr><th>agent</th><th>name</th><th>harness</th><th>role</th><th>events</th><th>last seen</th></tr>
+  {% for a in agents %}
+  <tr>
+    <td><span class="tag">{{ a.id }}</span></td>
+    <td>{{ a.name }}</td>
+    <td class="dim">{{ a.harness or "" }}</td>
+    <td>{{ a.role }}</td>
+    <td>{{ a.event_count }}</td>
+    <td class="dim">{% if a.last_seen %}{{ a.last_seen.isoformat()[:19] }}{% else %}never{% endif %}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="dim">no agents registered</td></tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}
