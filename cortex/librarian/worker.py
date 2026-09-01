@@ -46,6 +46,25 @@ async def _embed_event_text(conn, event) -> None:
     await conn.execute("UPDATE events SET embedding = $1 WHERE id = $2", vec, event["id"])
 
 
+async def _project_tool_use(conn, event, payload) -> None:
+    """Deterministic projection: hook/auto events carrying tool_name →
+    fact(agent, 'uses_tool', tool). This is what populates the graph view
+    with skills/MCPs/apps in use — no LLM required, rebuild-safe (AC3)."""
+    tool = str(payload.get("tool_name") or "").strip()
+    if not tool:
+        return
+    agent = str(event["agent"]).strip()
+    if not agent:
+        return
+    existing = await current_facts_for_pred(conn, agent, "uses_tool")
+    for e in existing:
+        if consolidation.objects_equal(e["obj_text"], tool):
+            await bump_confidence(conn, e["id"])
+            return
+    await add_fact(conn, subj_name=agent, pred="uses_tool", obj_text=tool,
+                   episode_id=event["id"], kind="observed", confidence=0.7)
+
+
 async def _project_decision(conn, event, payload) -> None:
     """Deterministic projection: decision event → fact(subj, 'decided', choice).
     Runs with or without an LLM so rebuilds are exact (AC3)."""
@@ -180,6 +199,9 @@ async def process_event(conn: asyncpg.Connection, event, agent_role: str = "agen
         await _project_decision(conn, event, payload)
     elif event["kind"] == "lesson":
         await _project_lesson(conn, event, payload)
+    elif event["kind"] == "action" and payload.get("tool_name"):
+        # hook/auto-captured tool use → graph edges (agent uses_tool tool)
+        await _project_tool_use(conn, event, payload)
 
     # 3. optional LLM extraction (NFR-3: disabled until configured)
     if cfg.llm_enabled:

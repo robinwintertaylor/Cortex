@@ -128,6 +128,17 @@ case "$cmd" in
     api POST /v1/brain_capture_url "{\"url\":\"$url\",\"note\":$note}" ;;
   entities)  api GET "/v1/brain_entities${1:+?query=$1}" ;;
   facts-about) api GET "/v1/brain_facts_about?entity=$1" ;;
+  graph)     api GET "/v1/brain_graph${1:+?project=$1}" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+print(f\"{d['stats']['entities']} entities, {d['stats']['facts']} facts\")
+deg={}
+for e in d['edges']: deg[e['from']]=deg.get(e['from'],0)+1; deg[e['to']]=deg.get(e['to'],0)+1
+n={n['id']:n for n in d['nodes']}
+for nid,_ in sorted(deg.items(), key=lambda kv:-kv[1])[:15]:
+    n_ = n.get(nid,{'label':nid,'group':'?'})
+    print(f\"  {n_['label']} ({n_['group']}) — {deg[nid]} edges\")
+print('open the dashboard for the full picture: /graph')" ;;
   queue)     api GET "/v1/brain_queue" ;;
   queue-add) api POST /v1/brain_queue_add "{\"title\":\"$1\",\"project\":\"${2:-}\"}" ;;
   queue-claim)   api POST /v1/brain_queue_claim "{\"item_id\":\"$1\"}" ;;

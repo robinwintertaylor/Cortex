@@ -257,6 +257,47 @@ async def facts_about(conn, agent, *, entity: str, history: bool = False) -> dic
     return {"entity": entity, "facts": [facts.fact_to_dict(r) for r in rows]}
 
 
+async def graph(conn, agent, *, project: str | None = None, history: bool = False,
+                limit: int = 300) -> dict:
+    """Knowledge-graph view (FR-13): entities as nodes, facts as edges —
+    subjects, tools/MCPs/apps in use, decisions, research links."""
+    from ..graph import build_graph
+
+    args: list[Any] = [min(limit, 1000)]
+    entities = await conn.fetch(
+        """
+        SELECT en.id, en.name, en.etype, en.summary,
+               count(f.id) AS fact_count
+        FROM entities en
+        LEFT JOIN facts f ON f.subj = en.id AND f.valid_to IS NULL
+        GROUP BY en.id
+        ORDER BY fact_count DESC, en.name
+        LIMIT $1
+        """,
+        *args,
+    )
+    args = [min(limit, 1000) * 4]
+    if project:
+        args.append(project)
+        proj_where = f" AND (e.project = ${len(args)} OR e.project IS NULL)"
+    else:
+        proj_where = ""
+    facts_rows = await conn.fetch(
+        f"""
+        SELECT f.* FROM facts f
+        LEFT JOIN events e ON e.id = f.episode_id
+        WHERE TRUE{proj_where}
+        ORDER BY f.valid_from DESC
+        LIMIT $1
+        """,
+        *args,
+    )
+    g = build_graph(entities, facts_rows, include_history=history, max_nodes=limit)
+    g["stats"] = {"entities": len(g["nodes"]), "facts": len(g["edges"]),
+                  "history": history}
+    return g
+
+
 async def agents_directory(conn, caller) -> dict:
     rows = await conn.fetch("SELECT id, name, harness, role, last_seen FROM agents ORDER BY id")
     return {"agents": [

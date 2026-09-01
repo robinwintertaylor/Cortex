@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="display:flex; gap:10px; align-items:center; margin-bottom:10px">
+  <form class="inline" method="get" action="/graph">
+    <input type="text" name="project" placeholder="project filter (blank = all)" value="{{ project }}">
+    <select name="limit">
+      <option value="150" {% if limit == 150 %}selected{% endif %}>150 nodes</option>
+      <option value="300" {% if limit == 300 %}selected{% endif %}>300 nodes</option>
+      <option value="600" {% if limit == 600 %}selected{% endif %}>600 nodes</option>
+    </select>
+    <label><input type="checkbox" name="history" value="true" {% if history %}checked{% endif %}> show superseded</label>
+    <button>redraw</button>
+  </form>
+  <span class="dim" style="margin-left:auto">{{ graph.stats.entities }} entities · {{ graph.stats.facts }} facts</span>
+</div>
+
+<div style="display:flex; gap:10px">
+  <div class="card" style="flex:1; height:74vh; padding:0; overflow:hidden">
+    <div id="net" style="width:100%; height:100%"></div>
+  </div>
+  <div class="card" style="width:300px; height:74vh; overflow-y:auto" id="side">
+    <b>Click a node</b>
+    <p class="dim">…to see its current facts. Dashed edges are superseded facts.
+    Node colors: <span style="color:#7aa2f7">agent</span> ·
+    <span style="color:#9ece6a">tool</span> ·
+    <span style="color:#e0af68">tech</span> ·
+    <span style="color:#bb9af7">concept/project</span> ·
+    <span style="color:#f7768e">value/other</span></p>
+    <div id="facts"></div>
+  </div>
+</div>
+
+<script src="/static/vis-network.min.js"></script>
+<script>
+const data = {{ graph | tojson }};
+const colors = {
+  agent:  "#7aa2f7", tool: "#9ece6a", tech: "#e0af68",
+  concept:"#bb9af7", project:"#bb9af7", person:"#7dcfff",
+  other:  "#f7768e", value: "#f7768e",
+};
+const nodes = new vis.DataSet(data.nodes.map(n => ({
+  ...n,
+  color: colors[n.group] || colors.other,
+  shape: n.group === "agent" ? "star" : (n.group === "value" ? "box" : "dot"),
+  scaling: { label: { enabled: true, min: 10, max: 22 }, min: 6, max: 30 },
+})));
+const edges = new vis.DataSet(data.edges);
+const container = document.getElementById("net");
+const network = new vis.Network(container, {nodes, edges}, {
+  autoResize: true,
+  layout: { improvedLayout: true },
+  physics: { stabilization: { iterations: 250, fit: true }, barnesHut: { springLength: 120 } },
+  interaction: { hover: true, tooltipDelay: 120 },
+  edges: { arrows: "to", color: { color: "#4c5566", highlight: "#7aa2f7" }, smooth: false },
+});
+network.on("click", params => {
+  if (params.nodes.length === 0) return;
+  const id = params.nodes[0];
+  const node = nodes.get(id);
+  document.getElementById("facts").innerHTML =
+    `<b>${node.label}</b> <span class="dim">(${node.group})</span><hr>`;
+  fetch(`/v1/brain_graph_node?id=${encodeURIComponent(node.label)}`)
+    .then(r => r.ok ? r.json() : {facts: []})
+    .then(d => {
+      if (!d.facts || !d.facts.length) {
+        document.getElementById("facts").innerHTML +=
+          `<p class="dim">no current facts</p>`;
+        return;
+      }
+      for (const f of d.facts) {
+        document.getElementById("facts").innerHTML +=
+          `<div style="margin-bottom:6px">` +
+          `<b>${f.predicate}</b> → ${f.object}` +
+          (f.status === "superseded" ? ' <span class="bad">(superseded)</span>' : '') +
+          `<div class="score">conf ${f.confidence} · kind ${f.kind}` +
+          (f.rationale ? ` · ${f.rationale}` : '') + `</div></div>`;
+      }
+    })
+    .catch(() => document.getElementById("facts").innerHTML +=
+      `<p class="dim">detail fetch failed</p>`);
+});
+</script>
+{% endblock %}

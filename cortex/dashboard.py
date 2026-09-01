@@ -11,11 +11,13 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .db import get_pool
 from .events import record_to_dict
 from .facts import fact_to_dict
+from .graph import build_graph
 from .queue import item_to_dict
 from .search import brain_search
 from .digest import digest as make_digest, render_digest_md
@@ -23,6 +25,9 @@ from .util import parse_since, payload_dict
 
 _templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 app = FastAPI(title="Cortex Dashboard", docs_url=None, redoc_url=None)
+# vendored vis-network (local-first — no CDN call from the browser)
+app.mount("/static", StaticFiles(
+    directory=str(Path(__file__).parent / "templates" / "static")), name="static")
 
 
 async def _conn():
@@ -129,3 +134,62 @@ async def agents_page(request: Request):
             FROM agents a ORDER BY event_count DESC
             """)
     return _templates.TemplateResponse(request, "agents.html", {"agents": [dict(r) for r in rows]})
+
+
+@app.get("/graph", response_class=HTMLResponse)
+async def graph_page(request: Request, project: str | None = None,
+                     history: bool = False, limit: int = 300):
+    """Knowledge-graph view: entities as nodes, facts as edges (FR-13).
+    Subjects, tools/MCPs/apps in use, decisions, research links — governed
+    by the same fact model as everything else."""
+    pool = await _conn()
+    async with pool.acquire() as conn:
+        entities = await conn.fetch(
+            """
+            SELECT en.id, en.name, en.etype, en.summary,
+                   count(f.id) AS fact_count
+            FROM entities en
+            LEFT JOIN facts f ON f.subj = en.id AND f.valid_to IS NULL
+            GROUP BY en.id
+            ORDER BY fact_count DESC, en.name
+            LIMIT $1
+            """,
+            min(limit, 1000),
+        )
+        args: list[Any] = [min(limit, 1000) * 4]
+        proj_where = ""
+        if project:
+            args.append(project)
+            proj_where = f" AND (e.project = ${len(args)} OR e.project IS NULL)"
+        facts_rows = await conn.fetch(
+            f"""
+            SELECT f.* FROM facts f
+            LEFT JOIN events e ON e.id = f.episode_id
+            WHERE TRUE{proj_where}
+            ORDER BY f.valid_from DESC
+            LIMIT $1
+            """,
+            *args,
+        )
+        g = build_graph(entities, facts_rows, include_history=history,
+                        max_nodes=limit)
+    return _templates.TemplateResponse(request, "graph.html", {
+        "graph": g, "project": project or "", "history": history,
+        "limit": limit,
+    })
+
+
+@app.get("/v1/brain_graph_node")
+async def graph_node(id: str):
+    """Facts for one graph node (by entity name) — side-panel detail view."""
+    pool = await _conn()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT * FROM facts
+            WHERE lower(subj_name) = lower($1)
+            ORDER BY (valid_to IS NULL) DESC, valid_from DESC LIMIT 100
+            """,
+            id,
+        )
+    return {"facts": [fact_to_dict(r) for r in rows]}

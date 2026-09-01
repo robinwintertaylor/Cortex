@@ -147,6 +147,16 @@ async def brain_facts_about(entity: str, history: bool = False,
     return await service.facts_about(conn, agent, entity=entity, history=history)
 
 
+@router.get("/v1/brain_graph")
+@router.post("/v1/brain_graph")
+async def brain_graph(project: str | None = None, history: bool = False,
+                     limit: int = 300, agent=Depends(require_agent),
+                     conn=Depends(get_conn)):
+    """Knowledge-graph view: entities as nodes, facts as edges (FR-13)."""
+    return await service.graph(conn, agent, project=project, history=history,
+                               limit=limit)
+
+
 @router.get("/v1/brain_agents")
 async def brain_agents(agent=Depends(require_agent), conn=Depends(get_conn)):
     return await service.agents_directory(conn, agent)

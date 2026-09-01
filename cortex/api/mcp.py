@@ -185,6 +185,18 @@ async def brain_facts_about(entity: str, history: bool = False) -> dict:
 
 
 @mcp.tool()
+async def brain_graph(project: str | None = None, history: bool = False,
+                      limit: int = 300) -> dict:
+    """Knowledge-graph view: entities as nodes, facts as edges. Shows subjects,
+    tools/MCPs/apps in use, decisions, and research links across the brain."""
+    agent = _agent()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await service.graph(conn, agent, project=project, history=history,
+                                   limit=limit)
+
+
+@mcp.tool()
 async def brain_supersede_fact(fact_id: str, new_value: str,
                                rationale: str | None = None) -> dict:
     """Owner-authoritative supersession: close a fact and record its successor."""

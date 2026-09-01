@@ -40,7 +40,7 @@ cortex admin create-agent dsh --name "DSH" --harness dsh --role owner
 
 - API: `http://localhost:8738` — `/v1/*` REST, `/mcp` (streamable-HTTP MCP),
   `/v1/stream` SSE, `/hook/*` sinks, `/healthz`, `/metrics`
-- Dashboard: `http://localhost:8740` (read-only timeline/search/decisions/queue)
+- Dashboard: `http://localhost:8740` — timeline, hybrid search, decision browser, **knowledge-graph view** (`/graph`, vis-network vendored locally: entities as nodes, facts as edges, supersession dashed, click a node for its facts), queue/digest, agents
 - Librarian runs as its own compose service (embeds + extracts + consolidates)
 
 ## Layout
