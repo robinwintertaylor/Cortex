@@ -95,7 +95,11 @@ def build_graph(entities: Iterable[Any], facts: Iterable[Any], *,
         edges = [e for e in edges
                  if e["from"] in keep and e["to"] in keep]
 
-    return {"nodes": list(nodes.values()), "edges": edges}
+    return {
+        "nodes": list(nodes.values()),
+        "edges": edges,
+        "stats": {"entities": len(nodes), "facts": len(edges)},
+    }
 
 
 def _synthetic(key: str, label: str, group: str, nodes: dict) -> dict:
