@@ -9,11 +9,11 @@ shrink every long document. Found while uploading the Second Brain docs
 import cortex.api.service as service
 
 
-async def test_note_event_payload_keeps_full_body():
-    """log_note's payload truncation must cover real documents (was 8_000)."""
+def test_note_event_payload_keeps_full_body():
+    """note()'s payload truncation must cover real documents (was 8_000)."""
     import inspect
 
-    src = inspect.getsource(service.log_note)
+    src = inspect.getsource(service.note)
     # the payload trunc limit must be ≥ 100k chars for document uploads
     assert "trunc(body, 200_000)" in src, (
         "note event payload truncation too small — long docs would not "

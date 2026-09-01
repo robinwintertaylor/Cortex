@@ -119,9 +119,11 @@ async def fts_search(
     kind: str | None = None,
     project: str | None = None,
     since: str | None = None,
+    kind_not: str | None = None,
 ) -> list[tuple[asyncpg.Record, float]]:
     """Postgres full-text over payloads — day-one search before any extraction
-    ran (FR-3). Returns (row, ts_rank) pairs."""
+    ran (FR-3). Returns (row, ts_rank) pairs. `kind_not` excludes one kind
+    (search uses it to keep note events from duplicating their note rows)."""
     where = ["payload_tsv @@ plainto_tsquery('simple', $1)"]
     args: list[Any] = [query]
     if agent:
@@ -130,6 +132,9 @@ async def fts_search(
     if kind:
         args.append(kind)
         where.append(f"kind = ${len(args)}")
+    elif kind_not:
+        args.append(kind_not)
+        where.append(f"kind <> ${len(args)}")
     if project:
         args.append(project)
         where.append(f"project = ${len(args)}")

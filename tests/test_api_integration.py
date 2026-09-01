@@ -215,3 +215,29 @@ def test_upload_file_over_size_cap_is_413(keys):
     with _client(keys["it-goose"]) as c:
         r = c.post("/v1/brain_upload_file", json={"filename": "big.bin", "content_base64": oversized})
         assert r.status_code == 413
+
+
+def test_note_search_no_event_duplicate(keys):
+    """Note events must not duplicate their note rows in search results
+    (dedup regression found via the Second Brain docs upload)."""
+    _key_or_skip(keys, "it-goose")
+    with _client(keys["it-goose"]) as c:
+        marker = f"dedup-check-{int(time.time())}"
+        r = c.post("/v1/brain_note", json={
+            "title": f"Dedup probe {marker}",
+            "body": f"Unique searchable body text {marker} for dedup verification.",
+            "tags": ["dedup"], "project": "cortex",
+        })
+        assert r.status_code == 200
+        for _ in range(20):
+            s = c.get("/v1/brain_search", params={"q": marker, "limit": 10}).json()
+            if s["results"]:
+                break
+            time.sleep(0.5)
+        ids = [x["id"] for x in s["results"]]
+        # the note row may appear, but its E-<id> twin must not (same content)
+        kinds = [x.get("type") for x in s["results"]]
+        assert "note" in kinds, f"note row missing from results: {ids}"
+        assert len([i for i in ids if i.startswith("E-") and
+                    s["results"][ids.index(i)]["type"] == "note"]) == 0, (
+            f"note event duplicated note row in search results: {ids}")

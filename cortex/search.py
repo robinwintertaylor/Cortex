@@ -160,31 +160,38 @@ async def brain_search(
 
     kind_filter = type if type in ("action", "decision", "lesson", "research", "note", "question") else None
 
-    # keyword leg (events + notes)
+    # keyword leg (events + notes). Note events duplicate their note rows —
+    # the notes arm is authoritative for them (full body, tags), so the
+    # events arm excludes kind='note' (dedup).
     if mode in ("hybrid", "keyword", "rerank"):
-        ev_rows = await events_fts(conn, query, limit=MAX_POOL, agent=agent,
-                                    kind=kind_filter, project=project, since=since)
-        lists.append([(f"E-{r['id']}", _event_result(r)) for r, _s in ev_rows])
-        if not kind_filter:
+        if kind_filter != "note":
+            ev_rows = await events_fts(conn, query, limit=MAX_POOL, agent=agent,
+                                       kind=kind_filter, project=project,
+                                       since=since, kind_not="note")
+            lists.append([(f"E-{r['id']}", _event_result(r)) for r, _s in ev_rows])
+        if kind_filter is None or kind_filter == "note":
             note_rows = await notes_mod.fts_search(conn, query, limit=MAX_POOL,
                                                    project=project, tag=tag)
             lists.append([(str(r["id"]), _note_result(r)) for r, _s in note_rows])
 
-    # semantic leg (events + notes ANN)
+    # semantic leg (events + notes ANN) — same note-event dedup as keyword leg
     if mode in ("hybrid", "semantic", "rerank"):
         qvec = await embed_one(query)
         if any(qvec):
-            ann_ev = await conn.fetch(
-                """
-                SELECT *, 1 - (embedding <=> $1) AS sim FROM events
-                WHERE embedding IS NOT NULL AND 1 - (embedding <=> $1) > 0.25
-                ORDER BY embedding <=> $1 LIMIT $2
-                """,
-                qvec, MAX_POOL,
-            )
-            lists.append([(f"E-{r['id']}", _event_result(r)) for r in ann_ev])
-            ann_notes = await notes_mod.ann_search(conn, qvec, limit=MAX_POOL, project=project)
-            lists.append([(str(r["id"]), _note_result(r)) for r, _s in ann_notes])
+            if kind_filter != "note":
+                ann_ev = await conn.fetch(
+                    """
+                    SELECT *, 1 - (embedding <=> $1) AS sim FROM events
+                    WHERE embedding IS NOT NULL AND kind <> 'note'
+                      AND 1 - (embedding <=> $1) > 0.25
+                    ORDER BY embedding <=> $1 LIMIT $2
+                    """,
+                    qvec, MAX_POOL,
+                )
+                lists.append([(f"E-{r['id']}", _event_result(r)) for r in ann_ev])
+            if kind_filter is None or kind_filter == "note":
+                ann_notes = await notes_mod.ann_search(conn, qvec, limit=MAX_POOL, project=project)
+                lists.append([(str(r["id"]), _note_result(r)) for r, _s in ann_notes])
 
     # graph leg
     if mode in ("hybrid", "rerank"):
