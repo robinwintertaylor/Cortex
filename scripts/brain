@@ -2,8 +2,14 @@
 # brain — thin shell wrapper over the Cortex REST API (Plan 2 §9.4).
 # Used by the DSH bash tool, headless wrappers, and humans.
 #
-#   export CORTEX_URL=http://cortex.local:8738
-#   export CORTEX_KEY=cx-<agent-id>-<secret>
+# Credentials resolve in this order:
+#   1. CORTEX_KEY env                    (cx-<agent-id>-<secret>)
+#   2. key file: CORTEX_KEY_FILE env or ~/.config/cortex/agent-keys.key
+#      (one "agent-id=cx-…" per line, # comments; CORTEX_AGENT picks the
+#       id, default "dsh" — set CORTEX_AGENT on machines wired as another
+#       harness)
+#   3. a single bare key line (no "id=" prefix) in the key file
+#   plus CORTEX_URL (default http://localhost:8738)
 #
 #   brain context [project]
 #   brain search <query...>
@@ -25,7 +31,24 @@
 set -euo pipefail
 
 CORTEX_URL="${CORTEX_URL:-http://localhost:8738}"
-CORTEX_KEY="${CORTEX_KEY:?set CORTEX_KEY (your agent key)}"
+
+if [[ -z "${CORTEX_KEY:-}" ]]; then
+  KEY_FILE="${CORTEX_KEY_FILE:-$HOME/.config/cortex/agent-keys.key}"
+  if [[ -r "$KEY_FILE" ]]; then
+    AGENT_ID="${CORTEX_AGENT:-dsh}"
+    while IFS= read -r line; do
+      [[ -z "${line// }" || "$line" == \#* ]] && continue
+      if [[ "$line" == *=cx-* ]]; then
+        k_id="${line%%=*}"
+        if [[ "$k_id" == "$AGENT_ID" ]]; then CORTEX_KEY="${line#*=}"; break; fi
+      elif [[ "$line" == cx-* ]]; then
+        CORTEX_KEY="$line"   # bare-key file
+        break
+      fi
+    done < "$KEY_FILE"
+  fi
+fi
+CORTEX_KEY="${CORTEX_KEY:?set CORTEX_KEY, or create a key file at ~/.config/cortex/agent-keys.key (lines: agent-id=cx-…; CORTEX_AGENT selects the id, default dsh)}"
 cmd="${1:-help}"; shift || true
 
 api() { # api METHOD PATH [json]
