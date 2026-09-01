@@ -163,7 +163,8 @@ async def graph_page(request: Request, project: str | None = None,
             proj_where = f" AND (e.project = ${len(args)} OR e.project IS NULL)"
         facts_rows = await conn.fetch(
             f"""
-            SELECT f.* FROM facts f
+            SELECT f.*, e.agent AS agent, e.harness AS harness
+            FROM facts f
             LEFT JOIN events e ON e.id = f.episode_id
             WHERE TRUE{proj_where}
             ORDER BY f.valid_from DESC
@@ -186,10 +187,16 @@ async def graph_node(id: str):
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT * FROM facts
-            WHERE lower(subj_name) = lower($1)
-            ORDER BY (valid_to IS NULL) DESC, valid_from DESC LIMIT 100
+            SELECT f.*, e.agent AS agent, e.harness AS harness
+            FROM facts f
+            LEFT JOIN events e ON e.id = f.episode_id
+            WHERE lower(f.subj_name) = lower($1)
+            ORDER BY (f.valid_to IS NULL) DESC, f.valid_from DESC LIMIT 100
             """,
             id,
         )
-    return {"facts": [fact_to_dict(r) for r in rows]}
+    return {"facts": [
+        {**fact_to_dict(r), "harness": r["harness"] or r["agent"] or "unknown",
+         "agent": r["agent"]}
+        for r in rows
+    ]}
