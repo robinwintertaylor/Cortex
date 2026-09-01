@@ -341,8 +341,31 @@ async def graph(conn, agent, *, project: str | None = None, history: bool = Fals
         """,
         *args,
     )
-    g = build_graph(entities, facts_rows, include_history=history, max_nodes=limit)
+    args_docs: list[Any] = [min(limit, 1000)]
+    if project:
+        args_docs.append(project)
+        docs_proj_where = f" AND (project = ${len(args_docs)} OR project IS NULL)"
+    else:
+        docs_proj_where = ""
+    docs_rows = await conn.fetch(
+        f"""
+        SELECT id, title, note_type, project, tags, author, source_url,
+               original_filename, links
+        FROM notes
+        WHERE TRUE{docs_proj_where}
+        ORDER BY ts DESC
+        LIMIT $1
+        """,
+        *args_docs,
+    )
+    doc_link_rows = await conn.fetch(
+        "SELECT note_id, entity_id, score FROM doc_links WHERE note_id = ANY($1::uuid[])",
+        [r["id"] for r in docs_rows],
+    ) if docs_rows else []
+    g = build_graph(entities, facts_rows, docs=docs_rows, doc_links=doc_link_rows,
+                    include_history=history, max_nodes=limit)
     g["stats"] = {"entities": len(g["nodes"]), "facts": len(g["edges"]),
+                  "docs": sum(1 for n in g["nodes"] if n["group"] == "doc"),
                   "history": history}
     return g
 

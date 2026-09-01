@@ -73,6 +73,12 @@ class Config:
     librarian_poll_seconds: float = field(default_factory=lambda: float(os.environ.get(
         "CORTEX_LIBRARIAN_POLL_SECONDS", "2.0")))
 
+    # doc↔entity embedding linking (graph view): minimum cosine similarity to
+    # record a link, and how many nearest matches to consider per side.
+    doc_link_min_score: float = field(default_factory=lambda: float(os.environ.get(
+        "CORTEX_DOC_LINK_MIN_SCORE", "0.55")))
+    doc_link_top_k: int = field(default_factory=lambda: _int("CORTEX_DOC_LINK_TOP_K", 5))
+
     @property
     def llm_enabled(self) -> bool:
         return bool(self.llm_base_url)

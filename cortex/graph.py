@@ -19,8 +19,10 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-# entity types get distinct fill colors in the UI; unknown types fall back
-KNOWN_TYPES = ("agent", "tool", "tech", "concept", "project", "person", "other")
+# entity types get distinct fill colors in the UI; unknown types fall back.
+# "doc" is synthetic — it's notes/uploaded files (cortex/files.py), not an
+# entity-table row, but it renders as a node group like any other.
+KNOWN_TYPES = ("agent", "tool", "tech", "concept", "project", "person", "doc", "other")
 
 # fact.kind → edge color. Chosen not to collide with KNOWN_TYPES fill colors
 # (see graph.html) so "kind" (edge color) and "etype" (node fill) read as
@@ -31,6 +33,7 @@ KIND_COLORS = {
     "owner": "#7dcfff",     # cyan — an ownership/assignment fact
     "extracted": "#9ece6a", # green — LLM-extracted from an episode
     "observed": "#565f73",  # muted slate — raw auto-captured tool-use
+    "doc": "#41a6b5",       # teal — a doc/file referencing an entity
 }
 DEFAULT_KIND_COLOR = "#565f73"
 
@@ -44,13 +47,29 @@ HARNESS_PALETTE = [
 
 
 def build_graph(entities: Iterable[Any], facts: Iterable[Any], *,
+                docs: Iterable[Any] | None = None,
+                doc_links: Iterable[Any] | None = None,
                 include_history: bool = False,
                 max_nodes: int = 300) -> dict[str, Any]:
     """Build a vis-network-shaped {nodes, edges} document.
 
-    entities: rows with (id, name, etype, summary)
-    facts:    rows with (id, subj, subj_name, pred, obj, obj_text,
-                         valid_from, valid_to, kind, confidence)
+    entities:  rows with (id, name, etype, summary)
+    facts:     rows with (id, subj, subj_name, pred, obj, obj_text,
+                          valid_from, valid_to, kind, confidence)
+    docs:      rows with (id, title, note_type, project, tags, author,
+                          source_url, original_filename, links) — project docs
+                          and uploaded files (cortex/notes.py, cortex/files.py).
+                          Each becomes a 'doc' node; it's edged to any entity
+                          whose name matches the doc's project/tags/links
+                          (case-insensitively) so docs slot into the same
+                          graph their content is about.
+    doc_links: rows with (note_id, entity_id, score) — semantic matches found
+                          by librarian.worker's embedding-similarity pass
+                          (cortex/librarian/worker.py), for docs the
+                          project/tags/links match above missed entirely.
+                          Edged as 'related_to' under the synthetic
+                          'auto-link' harness so they're visually and
+                          filterably distinct from a human/agent assertion.
     Literal objects (obj_text without an entity) become 'value' nodes.
     """
     nodes: dict[str, dict] = {}
@@ -122,6 +141,88 @@ def build_graph(entities: Iterable[Any], facts: Iterable[Any], *,
             "harness": harness,
             "agent": f.get("agent") or harness,
             "color": {"color": KIND_COLORS.get(kind, DEFAULT_KIND_COLOR)},
+        })
+
+    # name → node id, so docs can be edged to entities/subjects by name
+    # (docs have no fact rows connecting them; project/tags/links are the
+    # only signal we have of what a doc is "about").
+    name_index: dict[str, str] = {}
+    for nid, n in nodes.items():
+        name_index.setdefault(_norm_name(n["label"]), nid)
+
+    # doc_id -> entity node ids already edged to it (any source), so the
+    # embedding-linking pass below doesn't duplicate a project/tags/links
+    # match that happens to land on the same entity.
+    doc_linked: dict[str, set[str]] = {}
+
+    for d in docs or []:
+        row = dict(d) if hasattr(d, "keys") else d
+        note_type = row.get("note_type") or "note"
+        label = (row.get("original_filename") if note_type == "document" else None) \
+            or row.get("title") or "untitled"
+        doc_id = f"doc:{row['id']}"
+        title_bits = [f"[{note_type}] {label}"]
+        if row.get("project"):
+            title_bits.append(f"project={row['project']}")
+        if row.get("tags"):
+            title_bits.append(f"tags={', '.join(row['tags'])}")
+        if row.get("source_url"):
+            title_bits.append(f"source={row['source_url']}")
+        nodes[doc_id] = {
+            "id": doc_id, "label": str(label), "group": "doc",
+            "title": "\n".join(title_bits), "value": 1,
+        }
+        candidates = [row.get("project")] + list(row.get("tags") or []) \
+            + list(row.get("links") or [])
+        author = row.get("author") or "unknown"
+        linked = doc_linked.setdefault(doc_id, set())
+        for cand in candidates:
+            if not cand:
+                continue
+            target_id = name_index.get(_norm_name(cand))
+            if not target_id or target_id == doc_id or target_id in linked:
+                continue
+            linked.add(target_id)
+            edges.append({
+                "id": f"docref:{row['id']}:{target_id}",
+                "from": doc_id, "to": target_id,
+                "label": "project" if cand == row.get("project") else "references",
+                "title": f"{label} references {cand}\nkind=doc\nharness={author}",
+                "dashes": False,
+                "font": {"size": 9, "align": "middle"},
+                "kind": "doc",
+                "harness": author,
+                "agent": author,
+                "color": {"color": KIND_COLORS["doc"]},
+            })
+
+    # embedding-discovered doc↔entity links (librarian.worker) — same 'doc'
+    # kind/color, but labeled + attributed distinctly since no human/agent
+    # actually asserted this connection, a similarity score did.
+    for dl in doc_links or []:
+        row = dict(dl) if hasattr(dl, "keys") else dl
+        doc_id = f"doc:{row['note_id']}"
+        target_id = str(row["entity_id"])
+        if doc_id not in nodes or target_id not in nodes:
+            continue  # doc or entity fell outside this query's LIMIT
+        linked = doc_linked.setdefault(doc_id, set())
+        if target_id == doc_id or target_id in linked:
+            continue
+        linked.add(target_id)
+        score = row.get("score")
+        edges.append({
+            "id": f"doclink:{row['note_id']}:{target_id}",
+            "from": doc_id, "to": target_id,
+            "label": "related_to",
+            "title": (f"{nodes[doc_id]['label']} related_to {nodes[target_id]['label']}"
+                      f"\nkind=doc\nharness=auto-link"
+                      + (f"\nscore={score:.2f}" if score is not None else "")),
+            "dashes": False,
+            "font": {"size": 9, "align": "middle"},
+            "kind": "doc",
+            "harness": "auto-link",
+            "agent": "auto-link",
+            "color": {"color": KIND_COLORS["doc"]},
         })
 
     # cap: keep highest-degree nodes

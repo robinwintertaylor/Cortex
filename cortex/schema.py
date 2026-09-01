@@ -63,6 +63,7 @@ STATEMENTS_TEMPLATE = [
       created   TIMESTAMPTZ NOT NULL DEFAULT now()
     )
     """,
+    "CREATE INDEX IF NOT EXISTS entities_embedding_idx ON entities USING hnsw (embedding vector_cosine_ops)",
     # ── facts: bi-temporal knowledge graph (FR-4) ───────────────────────────
     """
     CREATE TABLE IF NOT EXISTS facts(
@@ -120,6 +121,24 @@ STATEMENTS_TEMPLATE = [
     "ALTER TABLE notes ADD COLUMN IF NOT EXISTS storage_path TEXT",
     "ALTER TABLE notes ADD COLUMN IF NOT EXISTS original_filename TEXT",
     "CREATE INDEX IF NOT EXISTS notes_sha256_idx ON notes (sha256) WHERE sha256 IS NOT NULL",
+    # ── doc_links: embedding-discovered doc↔entity connections ───────────────
+    # Docs (notes) aren't entities and carry no fact rows, so graph.py's
+    # project/tags/links string-match is the only edge signal for a doc
+    # *unless* the librarian has found a semantic match here. Populated by
+    # librarian.worker's linking pass (never by hand); ON DELETE CASCADE so a
+    # `cortex rebuild` (which wipes entities) or a note delete drops stale
+    # links for free instead of orphaning rows or tripping an FK error.
+    """
+    CREATE TABLE IF NOT EXISTS doc_links(
+      note_id   UUID NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+      entity_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+      score     REAL NOT NULL,
+      method    TEXT NOT NULL DEFAULT 'embedding',
+      created   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (note_id, entity_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS doc_links_entity_idx ON doc_links (entity_id)",
     # ── lessons (FR-4/FR-5 outputs) ─────────────────────────────────────────
     """
     CREATE TABLE IF NOT EXISTS lessons(

@@ -125,8 +125,12 @@ async def _consolidate_extraction(conn, event, agent_role: str) -> None:
     for ent in ex["entities"]:
         e = await get_or_create_entity(conn, ent["name"], ent["type"])
         if ex["summary"] and not e["summary"]:
-            await conn.execute("UPDATE entities SET summary = $1 WHERE id = $2",
-                               ex["summary"], e["id"])
+            # embedding = NULL: name-only embeddings are thin signal for doc
+            # linking (_embed_pending_entities) — re-embed with the summary
+            # now that one exists, which also re-triggers _link_new_entities.
+            await conn.execute(
+                "UPDATE entities SET summary = $1, embedding = NULL WHERE id = $2",
+                ex["summary"], e["id"])
 
     for f in ex["facts"]:
         existing = await current_facts_for_pred(conn, f["subject"], f["predicate"])
@@ -212,6 +216,90 @@ async def process_event(conn: asyncpg.Connection, event, agent_role: str = "agen
                           extra={"event_id": event["id"]})
 
 
+async def _upsert_doc_link(conn, note_id, entity_id, score: float) -> None:
+    await conn.execute(
+        """
+        INSERT INTO doc_links (note_id, entity_id, score, method)
+        VALUES ($1, $2, $3, 'embedding')
+        ON CONFLICT (note_id, entity_id) DO UPDATE SET score = EXCLUDED.score
+        """,
+        note_id, entity_id, score,
+    )
+
+
+async def _embed_pending_entities(conn) -> list[asyncpg.Record]:
+    """Embed entities that lack one yet (mirrors the notes-embedding step
+    below). Returns the newly-embedded rows so the caller can react to
+    genuinely new entities instead of rescanning every doc every cycle."""
+    rows = await conn.fetch(
+        "SELECT id, name, etype, summary FROM entities WHERE embedding IS NULL LIMIT 25"
+    )
+    if not rows:
+        return []
+    vecs = await embed([f"{r['name']} ({r['etype'] or 'other'}) {r['summary'] or ''}".strip()
+                        for r in rows])
+    for r, v in zip(rows, vecs):
+        await conn.execute("UPDATE entities SET embedding = $1 WHERE id = $2", v, r["id"])
+    return rows
+
+
+async def _link_new_entities_to_docs(conn, new_entities) -> None:
+    """A freshly-embedded entity may be exactly what an already-uploaded,
+    still-orphaned doc was 'about' all along — sweep current notes for it.
+    This is what makes disconnected docs pick up connections *over time* as
+    the entity graph grows, not just at upload time (graph.py's doc-linking
+    docstring)."""
+    cfg = get_config()
+    for ent in new_entities:
+        vec = await conn.fetchval("SELECT embedding FROM entities WHERE id = $1", ent["id"])
+        if vec is None:
+            continue
+        matches = await conn.fetch(
+            """
+            SELECT id, 1 - (embedding <=> $1) AS score FROM notes
+            WHERE embedding IS NOT NULL
+            ORDER BY embedding <=> $1 LIMIT $2
+            """,
+            vec, cfg.doc_link_top_k,
+        )
+        for m in matches:
+            if m["score"] < cfg.doc_link_min_score:
+                continue
+            await _upsert_doc_link(conn, m["id"], ent["id"], float(m["score"]))
+
+
+async def _link_pending_notes_to_entities(conn) -> None:
+    """A newly-embedded doc gets matched against the current entity set.
+
+    NOT EXISTS doc_links means a note with zero qualifying matches gets
+    reconsidered every cycle until one lands — fine at this system's scale
+    (a personal/small-team second brain, LIMIT 25/cycle), and it's what lets
+    a doc uploaded before any relevant entity existed still connect once one
+    shows up, without a separate "already tried" column to maintain."""
+    cfg = get_config()
+    rows = await conn.fetch(
+        """
+        SELECT n.id, n.embedding FROM notes n
+        WHERE n.embedding IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM doc_links dl WHERE dl.note_id = n.id)
+        LIMIT 25
+        """
+    )
+    for n in rows:
+        matches = await conn.fetch(
+            """
+            SELECT id, 1 - (embedding <=> $1) AS score FROM entities
+            WHERE embedding IS NOT NULL
+            ORDER BY embedding <=> $1 LIMIT $2
+            """,
+            n["embedding"], cfg.doc_link_top_k,
+        )
+        for m in matches:
+            if m["score"] < cfg.doc_link_min_score:
+                continue
+            await _upsert_doc_link(conn, n["id"], m["id"], float(m["score"]))
+
+
 async def _agent_role(conn, agent: str) -> str:
     return await conn.fetchval("SELECT role FROM agents WHERE id = $1", agent) or "agent"
 
@@ -259,6 +347,15 @@ async def _one_cycle(conn) -> int:
         vecs = await embed([f"{n['title']} {n['body']}"[:2000] for n in pending_notes])
         for n, v in zip(pending_notes, vecs):
             await conn.execute("UPDATE notes SET embedding = $1 WHERE id = $2", v, n["id"])
+
+    # doc↔entity graph linking (FR-13 graph view): new entities sweep
+    # existing docs, then any still-unlinked doc gets matched against the
+    # current entity set — see graph.py's build_graph docstring.
+    new_entities = await _embed_pending_entities(conn)
+    if new_entities:
+        await _link_new_entities_to_docs(conn, new_entities)
+    await _link_pending_notes_to_entities(conn)
+
     return len(rows)
 
 
@@ -285,6 +382,7 @@ async def rebuild(from_id: int = 0) -> None:
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute("DELETE FROM facts")
+            await conn.execute("DELETE FROM doc_links")  # ON DELETE CASCADE would also catch this
             await conn.execute("DELETE FROM entities")
             await conn.execute("DELETE FROM lessons")
             await conn.execute("DELETE FROM librarian_state")

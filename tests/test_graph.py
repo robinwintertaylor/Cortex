@@ -14,6 +14,18 @@ def entity(id, name, etype=None, summary=None, fact_count=1):
                 "fact_count": fact_count})
 
 
+def doc(id, title, note_type="note", project=None, tags=None, author=None,
+        source_url=None, original_filename=None, links=None):
+    return Row({"id": id, "title": title, "note_type": note_type,
+                "project": project, "tags": tags or [], "author": author,
+                "source_url": source_url, "original_filename": original_filename,
+                "links": links or []})
+
+
+def doc_link(note_id, entity_id, score=0.7):
+    return Row({"note_id": note_id, "entity_id": entity_id, "score": score})
+
+
 def fact(id, subj, subj_name, pred, obj_text, obj=None, valid_to=None,
          kind="extracted", confidence=0.8, harness=None, agent=None):
     from datetime import datetime, timezone
@@ -114,6 +126,93 @@ def test_node_contributors_reflect_harness_share():
     assert by_harness["dsh"]["count"] == 2
     assert by_harness["dsh"]["share"] == 2 / 3
     assert by_harness["claude-code"]["count"] == 1
+
+
+def test_docs_become_doc_nodes():
+    docs_ = [doc("d1", "Design notes", project="cortex")]
+    g = build_graph([], [], docs=docs_)
+    doc_nodes = [n for n in g["nodes"] if n["group"] == "doc"]
+    assert len(doc_nodes) == 1
+    assert doc_nodes[0]["label"] == "Design notes"
+
+
+def test_document_note_type_labels_with_original_filename():
+    docs_ = [doc("d1", "ignored title", note_type="document",
+                 original_filename="spec.pdf")]
+    g = build_graph([], [], docs=docs_)
+    doc_node = next(n for n in g["nodes"] if n["group"] == "doc")
+    assert doc_node["label"] == "spec.pdf"
+
+
+def test_doc_links_to_matching_project_entity():
+    ents = [entity("u1", "cortex", "project")]
+    docs_ = [doc("d1", "Design notes", project="cortex", author="dsh")]
+    g = build_graph(ents, [], docs=docs_)
+    doc_id = next(n["id"] for n in g["nodes"] if n["group"] == "doc")
+    assert len(g["edges"]) == 1
+    e = g["edges"][0]
+    assert e["from"] == doc_id and e["to"] == "u1"
+    assert e["label"] == "project"
+    assert e["kind"] == "doc"
+    assert e["harness"] == "dsh"
+
+
+def test_doc_links_to_matching_tag_case_insensitively():
+    ents = [entity("u1", "Postgres", "tech")]
+    docs_ = [doc("d1", "Migration guide", tags=["postgres", "ops"])]
+    g = build_graph(ents, [], docs=docs_)
+    assert len(g["edges"]) == 1
+    assert g["edges"][0]["label"] == "references"
+
+
+def test_doc_with_no_matches_is_still_a_standalone_node():
+    docs_ = [doc("d1", "Orphan note")]
+    g = build_graph([], [], docs=docs_)
+    assert len(g["nodes"]) == 1
+    assert len(g["edges"]) == 0
+
+
+def test_doc_links_embedding_match_to_orphan_doc():
+    """The librarian's semantic-similarity pass connects a doc that has no
+    project/tags/links overlap with any entity at all."""
+    ents = [entity("u1", "cortex", "project")]
+    docs_ = [doc("d1", "Orphan note")]  # no project/tags/links
+    links_ = [doc_link("d1", "u1", score=0.71)]
+    g = build_graph(ents, [], docs=docs_, doc_links=links_)
+    assert len(g["edges"]) == 1
+    e = g["edges"][0]
+    assert e["label"] == "related_to"
+    assert e["kind"] == "doc"
+    assert e["harness"] == "auto-link"
+    assert "score=0.71" in e["title"]
+
+
+def test_doc_links_dedupe_against_string_match_edge():
+    """An embedding match landing on the same entity a project/tags/links
+    match already reached must not produce a second edge."""
+    ents = [entity("u1", "cortex", "project")]
+    docs_ = [doc("d1", "Design notes", project="cortex", author="dsh")]
+    links_ = [doc_link("d1", "u1", score=0.9)]
+    g = build_graph(ents, [], docs=docs_, doc_links=links_)
+    assert len(g["edges"]) == 1
+    assert g["edges"][0]["label"] == "project"  # the string match, not the embed one
+
+
+def test_doc_links_ignore_entities_outside_the_query_window():
+    """An entity_id doc_links points at but that isn't in this render's
+    entity set (paged out by LIMIT) must not crash or dangle an edge."""
+    docs_ = [doc("d1", "Orphan note")]
+    links_ = [doc_link("d1", "missing-entity", score=0.8)]
+    g = build_graph([], [], docs=docs_, doc_links=links_)
+    assert len(g["edges"]) == 0
+
+
+def test_doc_kind_and_harness_appear_in_legends():
+    ents = [entity("u1", "cortex", "project")]
+    docs_ = [doc("d1", "Design notes", project="cortex", author="goose")]
+    g = build_graph(ents, [], docs=docs_)
+    assert {k["name"] for k in g["kinds"]} == {"doc"}
+    assert {h["name"] for h in g["harnesses"]} == {"goose"}
 
 
 def test_harnesses_and_kinds_summarize_surviving_edges_only():
