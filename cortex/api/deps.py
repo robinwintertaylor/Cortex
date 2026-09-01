@@ -43,7 +43,7 @@ async def require_hook_token(
     request: Request,
     conn: asyncpg.Connection = Depends(get_conn),
     authorization: str | None = Header(default=None),
-    x_hook_token: str | None = Header(default=None),
+    x_hook_token: str | None = Header(default=None, alias="X-Cortex-Hook-Token"),
 ) -> asyncpg.Record:
     """Shared-token sink auth + LAN origin check (NFR-4). Returns a synthetic
     'hook' agent row: hook writes are raw-event writes (persona P4)."""
