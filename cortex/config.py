@@ -43,6 +43,10 @@ class Config:
     llm_base_url: str = field(default_factory=lambda: os.environ.get("CORTEX_LLM_BASE_URL", "").rstrip("/"))
     llm_api_key: str = field(default_factory=lambda: os.environ.get("CORTEX_LLM_API_KEY", ""))
     llm_model: str = field(default_factory=lambda: os.environ.get("CORTEX_LLM_MODEL", "deepseek-chat"))
+    # request response_format json_object; some providers/models (OpenRouter
+    # free tiers notably) reject it — set CORTEX_LLM_JSON_MODE=false to
+    # disable (extraction then relies on defensive JSON parsing)
+    llm_json_mode: bool = field(default_factory=lambda: _bool("CORTEX_LLM_JSON_MODE", True))
 
     # embeddings — local ONNX (fastembed)
     embed_model: str = field(default_factory=lambda: os.environ.get("CORTEX_EMBED_MODEL", "BAAI/bge-m3"))

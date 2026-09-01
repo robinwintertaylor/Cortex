@@ -27,7 +27,7 @@ async def chat(messages: list[dict[str, str]], *, max_tokens: int = 2000,
         "max_tokens": max_tokens,
         "temperature": 0.1,
     }
-    if json_mode:
+    if json_mode and cfg.llm_json_mode:
         body["response_format"] = {"type": "json_object"}
     headers = {"Authorization": f"Bearer {cfg.llm_api_key}"} if cfg.llm_api_key else {}
     async with httpx.AsyncClient(timeout=60) as client:
