@@ -110,3 +110,45 @@ def test_idempotent_event_append(keys):
         r1 = c.post("/v1/brain_log_action", json=idem)
         r2 = c.post("/v1/brain_log_action", json=idem)
         assert r1.json()["event_id"] == r2.json()["event_id"]
+
+
+def test_hyphenated_agent_id_round_trip():
+    """Regression (fixed e574fc7): ids like claude-code must authenticate.
+    The old string-parse of the key split the id at the first hyphen and
+    401'd every request for hyphenated agents."""
+    admin = _client(os.environ["CORTEX_TEST_ADMIN_KEY"])
+    r = admin.post("/v1/admin/agents", json={"id": "it-claude-code", "name": "it-cc",
+                                             "harness": "claude-code"})
+    if r.status_code != 200:
+        pytest.skip("it-claude-code exists from a previous run")
+    key = r.json()["key"]
+    with _client(key) as c:
+        r = c.post("/v1/brain_log_action", json={"summary": "hyphen id test"})
+        assert r.status_code == 200, r.text
+        evs = c.get("/v1/brain_recent", params={"agent": "it-claude-code",
+                                                "limit": 5}).json()
+        assert any(e["payload"].get("summary") == "hyphen id test"
+                   for e in evs["events"])
+    admin.delete("/v1/admin/agents/it-claude-code/key")
+
+
+def test_hook_sink_accepts_documented_header():
+    """Regression (fixed 6a3ac0f): /hook/* must accept X-Cortex-Hook-Token."""
+    admin = _client(os.environ["CORTEX_TEST_ADMIN_KEY"])
+    admin.post("/v1/admin/agents", json={"id": "it-hooks", "name": "it-hooks",
+                                         "harness": "claude-code"})
+    token = os.environ.get("CORTEX_HOOK_TOKEN", "")
+    if not token:
+        pytest.skip("CORTEX_HOOK_TOKEN not set")
+    with httpx.Client(base_url=BASE, timeout=10) as raw:
+        r = raw.post("/hook/tool-use?agent=it-hooks",
+                     headers={"X-Cortex-Hook-Token": token},
+                     json={"session_id": "it-s1", "hook_event_name": "PostToolUse",
+                           "tool_name": "Write", "tool_input": {"path": "/tmp/x"}})
+        assert r.status_code == 200, r.text
+        r = raw.post("/hook/tool-use?agent=it-hooks",
+                     headers={"X-Hook-Token": token},  # wrong name must fail
+                     json={"session_id": "it-s1", "hook_event_name": "PostToolUse",
+                           "tool_name": "Write", "tool_input": {"path": "/tmp/x"}})
+        assert r.status_code == 401
+    admin.delete("/v1/admin/agents/it-hooks/key")
