@@ -157,13 +157,24 @@ function drawShapePath(ctx, group, x, y, r) {
   }
 }
 
+// hover magnification target size, in actual screen pixels — sizes/fonts set
+// on ctx elsewhere in drawNode are in canvas world-units, which vis-network
+// scales by the current zoom level before painting, so a fixed world-unit
+// bump (eg. "* 1.9") looks like nothing once the user is zoomed out on a big
+// graph. Dividing by network.getScale() below keeps the hover size constant
+// on screen regardless of zoom, which is what actually makes it readable.
+const HOVER_SCREEN_RADIUS = 24;
+const HOVER_SCREEN_FONT = 14;
+
 function customRenderer({ ctx, id, x, y, state: { selected, hover }, style, label }) {
   const n = nodes.get(id) || {};
-  const size = style.size || 14;
+  const baseSize = style.size || 14;
+  const zoom = network.getScale() || 1;
+  const size = hover ? Math.max(baseSize, HOVER_SCREEN_RADIUS / zoom) : baseSize;
   const fill = n.fill || "#7aa2f7";
   const alpha = n._alpha == null ? 1 : n._alpha;
   return {
-    nodeDimensions: { width: size * 2.4, height: size * 2.4 },
+    nodeDimensions: { width: baseSize * 2.4, height: baseSize * 2.4 },
     drawNode() {
       ctx.save();
       ctx.globalAlpha = alpha;
@@ -196,10 +207,21 @@ function customRenderer({ ctx, id, x, y, state: { selected, hover }, style, labe
       }
 
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = selected ? "#ffffff" : "#c7cddb";
-      ctx.font = (selected ? "600 " : "") + "11px ui-monospace, 'SF Mono', monospace";
+      ctx.fillStyle = selected || hover ? "#ffffff" : "#c7cddb";
+      const fontPx = hover ? Math.max(11, HOVER_SCREEN_FONT / zoom) : 11;
+      ctx.font = (selected || hover ? "600 " : "") + fontPx + "px ui-monospace, 'SF Mono', monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
+      if (hover) {
+        // legibility backdrop behind the enlarged label so it reads over
+        // whatever the canvas is drawing underneath (other nodes/edges)
+        const padX = 6, padY = 3;
+        const textW = ctx.measureText(label).width;
+        const boxY = y + size + 6;
+        ctx.fillStyle = "rgba(10,11,15,0.85)";
+        ctx.fillRect(x - textW / 2 - padX, boxY - padY, textW + padX * 2, fontPx + padY * 2);
+        ctx.fillStyle = "#ffffff";
+      }
       ctx.fillText(label, x, y + size + 8);
       ctx.restore();
     },
