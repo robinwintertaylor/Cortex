@@ -127,7 +127,7 @@ async def add_lesson(
         INSERT INTO lessons (statement, verified_by, project, event_id, confidence,
                              last_verified)
         VALUES ($1, $2, $3, $4, $5,
-                CASE WHEN $2 IS NOT NULL THEN now() ELSE NULL END)
+                CASE WHEN $2::text IS NOT NULL THEN now() ELSE NULL END)
         RETURNING *
         """,
         statement, verified_by, project, event_id, confidence,

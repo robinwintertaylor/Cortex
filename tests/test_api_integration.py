@@ -152,3 +152,17 @@ def test_hook_sink_accepts_documented_header():
                            "tool_name": "Write", "tool_input": {"path": "/tmp/x"}})
         assert r.status_code == 401
     admin.delete("/v1/admin/agents/it-hooks/key")
+
+
+def test_brain_lesson_with_verified_by(keys):
+    """Regression: notes.add_lesson used a bare `$2 IS NOT NULL` inside a
+    CASE expression alongside a typed VALUES-clause use of the same
+    placeholder ($2 = verified_by). Postgres can't infer a type for that
+    from context and 500'd with AmbiguousParameterError on every call that
+    passed verified_by, at prepare time -- before any value even mattered."""
+    _key_or_skip(keys, "it-goose")
+    with _client(keys["it-goose"]) as c:
+        r = c.post("/v1/brain_lesson", json={
+            "statement": "integration test lesson", "verified_by": "it-goose"})
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "active"
