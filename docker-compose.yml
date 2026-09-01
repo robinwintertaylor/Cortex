@@ -28,6 +28,9 @@ services:
       HF_HOME: /tmp/huggingface
       XDG_CACHE_HOME: /tmp/cache
       FASTEMBED_CACHE_PATH: /tmp/fastembed
+    # host-side LLM runtimes (LM Studio, ollama) for capture summaries etc.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
@@ -55,6 +58,10 @@ services:
       HF_HOME: /tmp/huggingface
       XDG_CACHE_HOME: /tmp/cache
       FASTEMBED_CACHE_PATH: /tmp/fastembed
+    # lets the librarian reach host-side LLM runtimes (LM Studio, ollama):
+    # CORTEX_LLM_BASE_URL=http://host.docker.internal:1234/v1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
