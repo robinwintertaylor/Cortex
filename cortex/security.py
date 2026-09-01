@@ -86,19 +86,22 @@ async def resolve_bearer(conn: asyncpg.Connection, key: str) -> asyncpg.Record |
 
     AC1/AC2/AC3: identity comes only from the key; revoked keys are rejected;
     the plaintext key never reaches storage or logs.
+
+    Agent ids may themselves contain hyphens (e.g. "claude-code"), so the
+    id can't be split out of "cx-<agent_id>-<secret>" by string parsing alone
+    — the secret half is also hyphen-safe (token_urlsafe). Match by testing
+    the key against each candidate agent's stored hash instead.
     """
-    agent_id = key_agent_id(key)
-    if not agent_id:
+    if not key.startswith(KEY_PREFIX):
         return None
-    row = await conn.fetchrow("SELECT * FROM agents WHERE id = $1", agent_id)
-    if row is None or row["revoked"]:
-        return None
-    if not verify_secret(key, row["key_hash"]):
-        return None
-    await conn.execute(
-        "UPDATE agents SET last_seen = now() WHERE id = $1", agent_id
-    )
-    return row
+    body = key[len(KEY_PREFIX):]
+    for row in await conn.fetch("SELECT * FROM agents WHERE NOT revoked"):
+        if body.startswith(f"{row['id']}-") and verify_secret(key, row["key_hash"]):
+            await conn.execute(
+                "UPDATE agents SET last_seen = now() WHERE id = $1", row["id"]
+            )
+            return row
+    return None
 
 
 def is_admin(authorization: str | None) -> bool:
