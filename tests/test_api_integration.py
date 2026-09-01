@@ -166,3 +166,52 @@ def test_brain_lesson_with_verified_by(keys):
             "statement": "integration test lesson", "verified_by": "it-goose"})
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "active"
+
+
+def test_upload_file_round_trip(keys):
+    """Every harness gets this the moment it's a shared MCP tool (NFR-8):
+    upload → immediately downloadable byte-for-byte, searchable by content,
+    and embedded by the librarian without any librarian-specific wiring."""
+    import base64
+    import time
+
+    _key_or_skip(keys, "it-goose")
+    content = b"# IT upload test\n\nintegration test content for round trip"
+    b64 = base64.b64encode(content).decode()
+    with _client(keys["it-goose"]) as c:
+        up = c.post("/v1/brain_upload_file", json={
+            "filename": "it-upload.md", "content_base64": b64, "project": "it-cortex"})
+        assert up.status_code == 200, up.text
+        body = up.json()
+        assert body["text_extracted"] is True
+        note_id = body["note_id"]
+
+        dl = c.get(f"/v1/brain_file/{note_id}")
+        assert dl.status_code == 200
+        assert dl.content == content
+        assert dl.headers["content-disposition"] == 'attachment; filename="it-upload.md"'
+
+        # dedup: identical bytes under a different name must reuse the blob
+        up2 = c.post("/v1/brain_upload_file", json={
+            "filename": "it-upload-again.md", "content_base64": b64, "project": "it-cortex"})
+        assert up2.json()["sha256"] == body["sha256"]
+
+        for _ in range(20):
+            s = c.get("/v1/brain_search", params={"q": "integration test content round trip",
+                                                   "limit": 5}).json()
+            if any(r["id"] == note_id for r in s["results"]):
+                break
+            time.sleep(0.5)
+        else:
+            pytest.fail("uploaded document never showed up in brain_search")
+
+
+def test_upload_file_over_size_cap_is_413(keys):
+    import base64
+
+    _key_or_skip(keys, "it-goose")
+    max_bytes = int(os.environ.get("CORTEX_TEST_UPLOAD_MAX_BYTES", 20 * 1024 * 1024))
+    oversized = base64.b64encode(b"x" * (max_bytes + 1)).decode()
+    with _client(keys["it-goose"]) as c:
+        r = c.post("/v1/brain_upload_file", json={"filename": "big.bin", "content_base64": oversized})
+        assert r.status_code == 413

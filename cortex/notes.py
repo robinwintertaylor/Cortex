@@ -26,16 +26,23 @@ async def create_note(
     event_id: int | None = None,
     derived: bool = False,
     links: list[str] | None = None,
+    mime_type: str | None = None,
+    size_bytes: int | None = None,
+    sha256: str | None = None,
+    storage_path: str | None = None,
+    original_filename: str | None = None,
 ) -> asyncpg.Record:
     return await conn.fetchrow(
         """
         INSERT INTO notes (title, body, author, tags, project, note_type,
-                           source_url, fetch_date, event_id, derived, links)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                           source_url, fetch_date, event_id, derived, links,
+                           mime_type, size_bytes, sha256, storage_path, original_filename)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING *
         """,
         title, body, author, tags or [], project, note_type,
         source_url, fetch_date, event_id, derived, links or [],
+        mime_type, size_bytes, sha256, storage_path, original_filename,
     )
 
 
@@ -100,6 +107,11 @@ def note_to_dict(r: asyncpg.Record, *, with_body: bool = False) -> dict[str, Any
         "source_url": r["source_url"],
         "ts": _iso(r["ts"]),
     }
+    if r.get("note_type") == "document":
+        d["file"] = {
+            "filename": r["original_filename"], "mime_type": r["mime_type"],
+            "size_bytes": r["size_bytes"], "sha256": r["sha256"],
+        }
     if with_body:
         d["body"] = r["body"]
     else:

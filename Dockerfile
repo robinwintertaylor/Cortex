@@ -11,8 +11,11 @@ COPY pyproject.toml README.md ./
 COPY cortex ./cortex
 RUN pip install --no-cache-dir .
 
-# Non-root
-RUN useradd -m cortex && chown -R cortex:cortex /srv/cortex
+# Non-root. /data/files is a named-volume mount point (docker-compose) for
+# uploaded file blobs — created + owned here so the volume inherits the
+# right ownership on first use (bind mounts don't get this for free).
+RUN useradd -m cortex && chown -R cortex:cortex /srv/cortex \
+    && mkdir -p /data/files && chown -R cortex:cortex /data/files
 USER cortex
 
 EXPOSE 8738 8740

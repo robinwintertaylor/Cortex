@@ -226,6 +226,37 @@ async def brain_capture_url(body: dict, agent=Depends(require_agent), conn=Depen
         raise HTTPException(502, f"capture failed: {e}")
 
 
+@router.post("/v1/brain_upload_file")
+async def brain_upload_file(body: dict, agent=Depends(require_agent), conn=Depends(get_conn)):
+    try:
+        return await service.upload_file(
+            conn, agent, filename=body.get("filename", ""),
+            content_base64=body.get("content_base64", ""),
+            project=body.get("project"), tags=body.get("tags"),
+            session=body.get("session"),
+        )
+    except service.UploadTooLarge as e:
+        raise HTTPException(413, str(e))
+    except Exception as e:
+        raise HTTPException(400, f"upload failed: {e}")
+
+
+@router.get("/v1/brain_file/{note_id}")
+async def brain_file(note_id: str, agent=Depends(require_agent), conn=Depends(get_conn)):
+    from .. import files as blobstore
+
+    row = await conn.fetchrow(
+        "SELECT * FROM notes WHERE id = $1 AND note_type = 'document'", note_id)
+    if row is None or not row["storage_path"]:
+        raise HTTPException(404, "no such file")
+    content = blobstore.read_blob(row["storage_path"])
+    filename = row["original_filename"] or "download"
+    return Response(
+        content=content, media_type=row["mime_type"] or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/v1/brain_supersede_fact")
 async def brain_supersede_fact(body: dict, agent=Depends(require_agent), conn=Depends(get_conn)):
     try:

@@ -109,6 +109,17 @@ STATEMENTS_TEMPLATE = [
       (to_tsvector('simple', title || ' ' || body))
     """,
     "CREATE INDEX IF NOT EXISTS notes_tags_idx ON notes USING gin (tags)",
+    # ── file uploads: notes rows with note_type='document' carry the extra
+    # columns below; body holds the extracted text (searched/embedded like
+    # any other note), storage_path points at the content-addressed blob on
+    # disk for download. Added as ALTER TABLE so existing deployments pick
+    # this up on next boot without a manual migration step.
+    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS mime_type TEXT",
+    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS size_bytes BIGINT",
+    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS sha256 TEXT",
+    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS storage_path TEXT",
+    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS original_filename TEXT",
+    "CREATE INDEX IF NOT EXISTS notes_sha256_idx ON notes (sha256) WHERE sha256 IS NOT NULL",
     # ── lessons (FR-4/FR-5 outputs) ─────────────────────────────────────────
     """
     CREATE TABLE IF NOT EXISTS lessons(

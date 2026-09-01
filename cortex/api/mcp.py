@@ -164,6 +164,22 @@ async def brain_capture_url(url: str, note: str | None = None) -> dict:
         return await service.capture_url(conn, agent, url=url, note_text=note)
 
 
+@mcp.tool()
+async def brain_upload_file(filename: str, content_base64: str,
+                            project: str | None = None,
+                            tags: list[str] | None = None) -> dict:
+    """Upload a file (base64-encoded content) so every harness can find it
+    later: stored content-addressed, text extracted best-effort (.txt/.md/
+    .pdf/.docx) and made searchable/embedded like any other note. Download
+    it back via GET /v1/brain_file/{note_id}."""
+    agent = _agent()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await service.upload_file(conn, agent, filename=filename,
+                                         content_base64=content_base64,
+                                         project=project, tags=tags)
+
+
 # ── graph ───────────────────────────────────────────────────────────────────
 
 @mcp.tool()

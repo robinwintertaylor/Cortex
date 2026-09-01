@@ -61,6 +61,10 @@ class Config:
     capture_timeout: int = field(default_factory=lambda: _int("CORTEX_CAPTURE_TIMEOUT", 15))
     capture_max_bytes: int = field(default_factory=lambda: _int("CORTEX_CAPTURE_MAX_BYTES", 5 * 1024 * 1024))
 
+    # file uploads: content-addressed blob store shared by every harness
+    files_dir: str = field(default_factory=lambda: os.environ.get("CORTEX_FILES_DIR", "/data/files"))
+    upload_max_bytes: int = field(default_factory=lambda: _int("CORTEX_UPLOAD_MAX_BYTES", 20 * 1024 * 1024))
+
     # digest / context sizing (FR-10: brain_context ≤ 25 KB)
     context_max_bytes: int = field(default_factory=lambda: _int("CORTEX_CONTEXT_MAX_BYTES", 25 * 1024))
 

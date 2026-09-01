@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -18,6 +18,7 @@ from .db import get_pool
 from .events import record_to_dict
 from .facts import fact_to_dict
 from .graph import build_graph
+from .notes import note_to_dict
 from .queue import item_to_dict
 from .search import brain_search
 from .digest import digest as make_digest, render_digest_md
@@ -122,6 +123,44 @@ async def queue_board(request: Request):
     return _templates.TemplateResponse(request, "queue.html", {
         "items": [item_to_dict(i) for i in items], "digest_md": digest_md,
     })
+
+
+@app.get("/documents", response_class=HTMLResponse)
+async def documents_page(request: Request, project: str | None = None):
+    """Uploaded files (brain_upload_file), shared across every harness."""
+    pool = await _conn()
+    async with pool.acquire() as conn:
+        where = "WHERE note_type = 'document'"
+        args: list[Any] = []
+        if project:
+            args.append(project)
+            where += f" AND project = ${len(args)}"
+        rows = await conn.fetch(
+            f"SELECT * FROM notes {where} ORDER BY ts DESC LIMIT 200", *args)
+    return _templates.TemplateResponse(request, "documents.html", {
+        "docs": [note_to_dict(r) for r in rows], "project": project or "",
+    })
+
+
+@app.get("/documents/{note_id}/download")
+async def documents_download(note_id: str):
+    """Serves the raw bytes directly (no bearer key): the dashboard is
+    already unauthenticated read-only (FR-13), and a plain browser link
+    can't attach an Authorization header the way /v1/brain_file/{id} needs."""
+    from . import files as blobstore
+
+    pool = await _conn()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM notes WHERE id = $1 AND note_type = 'document'", note_id)
+    if row is None or not row["storage_path"]:
+        return Response(status_code=404)
+    content = blobstore.read_blob(row["storage_path"])
+    filename = row["original_filename"] or "download"
+    return Response(
+        content=content, media_type=row["mime_type"] or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/agents", response_class=HTMLResponse)

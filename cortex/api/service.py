@@ -109,6 +109,55 @@ async def capture_url(conn, agent: asyncpg.Record, *, url: str, note_text: str |
     )
 
 
+class UploadTooLarge(ValueError):
+    pass
+
+
+async def upload_file(conn, agent: asyncpg.Record, *, filename: str, content_base64: str,
+                      project: str | None = None, tags: list[str] | None = None,
+                      session: str | None = None) -> dict:
+    """Store a file (any harness, base64 over MCP/REST) as a searchable,
+    downloadable note. Text is extracted best-effort and embedded by the
+    librarian exactly like any other note (FR-13-adjacent: shared uploads)."""
+    import base64
+
+    from .. import files as blobstore
+    from ..config import get_config
+
+    content = base64.b64decode(content_base64)
+    cfg = get_config()
+    if len(content) > cfg.upload_max_bytes:
+        raise UploadTooLarge(f"{len(content)} bytes exceeds {cfg.upload_max_bytes} cap")
+
+    mime_type = _guess_mime(filename)
+    async with conn.transaction():
+        sha256, storage_path, size = blobstore.save_blob(content)
+        text = blobstore.extract_text(filename, mime_type, content)
+        body = text[:20000] if text else "(no extractable text for this file type)"
+        ev = await events.append(
+            conn,
+            agent=agent["id"], kind="upload",
+            harness=agent["harness"], session=session, project=project,
+            payload={"filename": filename, "size_bytes": size, "mime_type": mime_type,
+                     "sha256": sha256, "tags": tags or []},
+        )
+        n = await notes.create_note(
+            conn, title=f"File: {filename}", body=body, author=agent["id"],
+            tags=tags, project=project, note_type="document", event_id=ev["id"],
+            mime_type=mime_type, size_bytes=size, sha256=sha256,
+            storage_path=storage_path, original_filename=filename,
+        )
+    return {"event_id": ev["id"], "note_id": str(n["id"]), "filename": filename,
+            "size_bytes": size, "mime_type": mime_type, "sha256": sha256,
+            "text_extracted": bool(text)}
+
+
+def _guess_mime(filename: str) -> str:
+    import mimetypes
+
+    return mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+
 async def sweep(conn, agent: asyncpg.Record, urls: list[str],
                 project: str | None = None) -> list[dict]:
     """Nightly research sweep for cron (FR-11)."""

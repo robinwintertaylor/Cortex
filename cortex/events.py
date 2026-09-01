@@ -15,7 +15,7 @@ import asyncpg
 from .util import parse_since, payload_dict
 
 KINDS = ("action", "decision", "lesson", "research", "note", "question",
-          "queue_claim", "queue_complete")
+          "queue_claim", "queue_complete", "upload")
 
 
 class InvalidKind(ValueError):

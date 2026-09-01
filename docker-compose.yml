@@ -25,9 +25,12 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgres://cortex:cortex@db:5432/cortex
+      CORTEX_FILES_DIR: /data/files
       HF_HOME: /tmp/huggingface
       XDG_CACHE_HOME: /tmp/cache
       FASTEMBED_CACHE_PATH: /tmp/fastembed
+    volumes:
+      - filedata:/data/files
     # host-side LLM runtimes (LM Studio, ollama) for capture summaries etc.
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -76,9 +79,12 @@ services:
     environment:
       DATABASE_URL: postgres://cortex:cortex@db:5432/cortex
       CORTEX_INTERNAL_URL: http://cortex:8738
+      CORTEX_FILES_DIR: /data/files
       HF_HOME: /tmp/huggingface
       XDG_CACHE_HOME: /tmp/cache
       FASTEMBED_CACHE_PATH: /tmp/fastembed
+    volumes:
+      - filedata:/data/files:ro
     depends_on:
       cortex:
         condition: service_healthy
@@ -88,3 +94,4 @@ services:
 
 volumes:
   pgdata: {}
+  filedata: {}
