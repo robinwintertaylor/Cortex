@@ -359,7 +359,7 @@ async def graph(conn, agent, *, project: str | None = None, history: bool = Fals
         *args_docs,
     )
     doc_link_rows = await conn.fetch(
-        "SELECT note_id, entity_id, score FROM doc_links WHERE note_id = ANY($1::uuid[])",
+        "SELECT note_id, entity_id, score, method FROM doc_links WHERE note_id = ANY($1::uuid[])",
         [r["id"] for r in docs_rows],
     ) if docs_rows else []
     g = build_graph(entities, facts_rows, docs=docs_rows, doc_links=doc_link_rows,

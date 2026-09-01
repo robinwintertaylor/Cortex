@@ -95,3 +95,45 @@ async def extract(event) -> dict[str, Any]:
     """LLM extraction of one event. Raises if the LLM is not configured."""
     raw = await extract_json(SYSTEM_PROMPT, event_text(event))
     return normalize(raw)
+
+
+DOC_LINK_SYSTEM_PROMPT = """You are the Cortex librarian, linking one document into a knowledge graph.
+You are given the document and a list of known entity names. Decide which of
+those entities this document is substantially ABOUT or discusses in depth —
+not a passing mention.
+
+Return ONLY a JSON object with this exact shape:
+{"relates_to": ["exact entity name from the list", ...]}
+
+Rules:
+- Only use names that appear verbatim in the provided candidate list.
+- NEVER invent an entity name that isn't in the list.
+- At most 8 entities. An empty list is a valid answer."""
+
+
+def normalize_doc_links(raw: dict[str, Any], candidates: list[str]) -> list[str]:
+    """Keep only LLM picks that exactly match a candidate (case-insensitive) —
+    same defensive-parsing spirit as normalize() above, but classification
+    over a fixed list needs no truncation/type coercion, just membership."""
+    lookup = {c.lower(): c for c in candidates}
+    picked, seen = [], set()
+    for name in (raw.get("relates_to") or [])[:8]:
+        key = str(name).strip().lower()
+        if key in lookup and key not in seen:
+            seen.add(key)
+            picked.append(lookup[key])
+    return picked
+
+
+async def suggest_doc_links(note, candidates: list[str]) -> list[str]:
+    """LLM pick of which candidate entities a note's content relates to.
+    Raises if the LLM is not configured (caller gates on cfg.llm_enabled)."""
+    if not candidates:
+        return []
+    user = json.dumps({
+        "title": note["title"],
+        "body": (note["body"] or "")[:4000],
+        "candidate_entities": candidates,
+    })
+    raw = await extract_json(DOC_LINK_SYSTEM_PROMPT, user)
+    return normalize_doc_links(raw, candidates)

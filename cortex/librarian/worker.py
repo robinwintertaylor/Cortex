@@ -216,14 +216,20 @@ async def process_event(conn: asyncpg.Connection, event, agent_role: str = "agen
                           extra={"event_id": event["id"]})
 
 
-async def _upsert_doc_link(conn, note_id, entity_id, score: float) -> None:
+async def _upsert_doc_link(conn, note_id, entity_id, score: float, method: str = "embedding") -> None:
+    # a doc can get the same (note, entity) pair from both passes below;
+    # keep whichever signal is more confident rather than letting the
+    # later writer blindly clobber the earlier one.
     await conn.execute(
         """
         INSERT INTO doc_links (note_id, entity_id, score, method)
-        VALUES ($1, $2, $3, 'embedding')
-        ON CONFLICT (note_id, entity_id) DO UPDATE SET score = EXCLUDED.score
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (note_id, entity_id) DO UPDATE SET
+            score = GREATEST(doc_links.score, EXCLUDED.score),
+            method = CASE WHEN EXCLUDED.score > doc_links.score
+                          THEN EXCLUDED.method ELSE doc_links.method END
         """,
-        note_id, entity_id, score,
+        note_id, entity_id, score, method,
     )
 
 
@@ -300,6 +306,44 @@ async def _link_pending_notes_to_entities(conn) -> None:
             await _upsert_doc_link(conn, n["id"], m["id"], float(m["score"]))
 
 
+# LLM-asserted (not a computed similarity) — a fixed confidence, distinct
+# from doc_link_min_score which only gates the embedding pass above.
+LLM_DOC_LINK_SCORE = 0.75
+
+
+async def _llm_link_pending_notes(conn) -> None:
+    """Optional, richer pass (only runs if an LLM is configured): asks the
+    LLM which known entities a note is actually *about*, catching related
+    docs the embedding pass misses (a doc can discuss an entity at length
+    without being textually/semantically close to that entity's name +
+    summary). One-shot per note via llm_linked_at — unlike the embedding
+    pass, a real API call per note isn't cheap enough to retry forever."""
+    cfg = get_config()
+    rows = await conn.fetch(
+        "SELECT id, title, body FROM notes WHERE llm_linked_at IS NULL LIMIT 5"
+    )
+    if not rows:
+        return
+    candidates = [r["name"] for r in await conn.fetch(
+        "SELECT name FROM entities ORDER BY created DESC LIMIT 200"
+    )]
+    for n in rows:
+        try:
+            picks = await extraction.suggest_doc_links(n, candidates)
+            for name in picks:
+                entity_id = await conn.fetchval(
+                    "SELECT id FROM entities WHERE lower(name) = lower($1)", name
+                )
+                if entity_id:
+                    await _upsert_doc_link(conn, n["id"], entity_id, LLM_DOC_LINK_SCORE, "llm")
+        except Exception:
+            log.exception("LLM doc-linking failed for note %s", n["id"])
+        finally:
+            # marked regardless of success/failure/empty result — see
+            # docstring: this is deliberately one-shot, not a retry loop.
+            await conn.execute("UPDATE notes SET llm_linked_at = now() WHERE id = $1", n["id"])
+
+
 async def _agent_role(conn, agent: str) -> str:
     return await conn.fetchval("SELECT role FROM agents WHERE id = $1", agent) or "agent"
 
@@ -355,6 +399,8 @@ async def _one_cycle(conn) -> int:
     if new_entities:
         await _link_new_entities_to_docs(conn, new_entities)
     await _link_pending_notes_to_entities(conn)
+    if get_config().llm_enabled:
+        await _llm_link_pending_notes(conn)
 
     return len(rows)
 
@@ -387,7 +433,7 @@ async def rebuild(from_id: int = 0) -> None:
             await conn.execute("DELETE FROM lessons")
             await conn.execute("DELETE FROM librarian_state")
             await conn.execute("DELETE FROM notes WHERE derived")
-            await conn.execute("UPDATE notes SET embedding = NULL")
+            await conn.execute("UPDATE notes SET embedding = NULL, llm_linked_at = NULL")
             await conn.execute("UPDATE events SET embedding = NULL")
             await conn.execute("DELETE FROM queue WHERE kind = 'adjudication' AND status = 'open'")
         total = await conn.fetchval("SELECT count(*) FROM events WHERE id >= $1", from_id)

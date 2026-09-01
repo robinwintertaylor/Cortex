@@ -121,6 +121,10 @@ STATEMENTS_TEMPLATE = [
     "ALTER TABLE notes ADD COLUMN IF NOT EXISTS storage_path TEXT",
     "ALTER TABLE notes ADD COLUMN IF NOT EXISTS original_filename TEXT",
     "CREATE INDEX IF NOT EXISTS notes_sha256_idx ON notes (sha256) WHERE sha256 IS NOT NULL",
+    # set once the librarian's LLM doc-linking pass has considered a note
+    # (regardless of outcome) — the one-shot marker that keeps that pass
+    # from re-querying the LLM for the same note every cycle forever.
+    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS llm_linked_at TIMESTAMPTZ",
     # ── doc_links: embedding-discovered doc↔entity connections ───────────────
     # Docs (notes) aren't entities and carry no fact rows, so graph.py's
     # project/tags/links string-match is the only edge signal for a doc

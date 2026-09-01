@@ -17,3 +17,4 @@ def test_doc_links_table_and_entity_embedding_index_present():
     assert "CREATE TABLE IF NOT EXISTS doc_links" in joined
     assert "ON DELETE CASCADE" in joined
     assert "entities_embedding_idx" in joined
+    assert "llm_linked_at" in joined

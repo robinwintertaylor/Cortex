@@ -63,13 +63,15 @@ def build_graph(entities: Iterable[Any], facts: Iterable[Any], *,
                           whose name matches the doc's project/tags/links
                           (case-insensitively) so docs slot into the same
                           graph their content is about.
-    doc_links: rows with (note_id, entity_id, score) — semantic matches found
-                          by librarian.worker's embedding-similarity pass
-                          (cortex/librarian/worker.py), for docs the
-                          project/tags/links match above missed entirely.
-                          Edged as 'related_to' under the synthetic
+    doc_links: rows with (note_id, entity_id, score, method) — matches found
+                          by librarian.worker's embedding-similarity pass and
+                          optional LLM pass (cortex/librarian/worker.py), for
+                          docs the project/tags/links match above missed
+                          entirely. Edged as 'related_to' under the synthetic
                           'auto-link' harness so they're visually and
-                          filterably distinct from a human/agent assertion.
+                          filterably distinct from a human/agent assertion;
+                          `method` ('embedding'|'llm') travels into the edge
+                          title only, not a separate visual channel.
     Literal objects (obj_text without an entity) become 'value' nodes.
     """
     nodes: dict[str, dict] = {}
@@ -210,12 +212,13 @@ def build_graph(entities: Iterable[Any], facts: Iterable[Any], *,
             continue
         linked.add(target_id)
         score = row.get("score")
+        method = row.get("method") or "embedding"
         edges.append({
             "id": f"doclink:{row['note_id']}:{target_id}",
             "from": doc_id, "to": target_id,
             "label": "related_to",
             "title": (f"{nodes[doc_id]['label']} related_to {nodes[target_id]['label']}"
-                      f"\nkind=doc\nharness=auto-link"
+                      f"\nkind=doc\nharness=auto-link\nmethod={method}"
                       + (f"\nscore={score:.2f}" if score is not None else "")),
             "dashes": False,
             "font": {"size": 9, "align": "middle"},

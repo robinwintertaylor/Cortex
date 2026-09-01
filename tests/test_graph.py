@@ -22,8 +22,8 @@ def doc(id, title, note_type="note", project=None, tags=None, author=None,
                 "links": links or []})
 
 
-def doc_link(note_id, entity_id, score=0.7):
-    return Row({"note_id": note_id, "entity_id": entity_id, "score": score})
+def doc_link(note_id, entity_id, score=0.7, method=None):
+    return Row({"note_id": note_id, "entity_id": entity_id, "score": score, "method": method})
 
 
 def fact(id, subj, subj_name, pred, obj_text, obj=None, valid_to=None,
@@ -196,6 +196,20 @@ def test_doc_links_dedupe_against_string_match_edge():
     g = build_graph(ents, [], docs=docs_, doc_links=links_)
     assert len(g["edges"]) == 1
     assert g["edges"][0]["label"] == "project"  # the string match, not the embed one
+
+
+def test_doc_links_method_defaults_to_embedding_in_title():
+    ents = [entity("u1", "cortex", "project")]
+    docs_ = [doc("d1", "Orphan note")]
+    g = build_graph(ents, [], docs=docs_, doc_links=[doc_link("d1", "u1")])
+    assert "method=embedding" in g["edges"][0]["title"]
+
+
+def test_doc_links_llm_method_appears_in_title():
+    ents = [entity("u1", "cortex", "project")]
+    docs_ = [doc("d1", "Orphan note")]
+    g = build_graph(ents, [], docs=docs_, doc_links=[doc_link("d1", "u1", method="llm")])
+    assert "method=llm" in g["edges"][0]["title"]
 
 
 def test_doc_links_ignore_entities_outside_the_query_window():
