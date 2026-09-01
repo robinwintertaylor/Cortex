@@ -2,7 +2,9 @@
 
 > Copy this text (or a pointer to it) into every harness's instruction file:
 > `~/.claude/CLAUDE.md` · `~/.vibe/AGENTS.md` · `~/.config/goose/.goosehints` ·
-> `~/.dsh/AGENTS.md` · Claude Desktop system prompt. Tool names are identical
+> `~/.dsh/AGENTS.md` · Claude Desktop system prompt · Cursor
+> `.cursor/rules/cortex.mdc` (see `deploy/cursor/`) · VS Code workspace
+> `AGENTS.md` (see `deploy/vscode/`). Tool names are identical
 > on every surface (MCP tools, REST endpoints, `brain` CLI) — NFR-8.
 
 1. **AT SESSION START (before planning):** call `brain_context` for the active

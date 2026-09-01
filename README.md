@@ -58,8 +58,9 @@ cortex/
   api/                               FastAPI app: REST /v1, MCP /mcp, SSE, hooks
   dashboard.py, cli.py               read-only web UI, admin/export/rebuild CLI
 scripts/                             brain wrapper, MCP stdio bridge, backup, purge
-deploy/                             per-harness wiring for all six harnesses
-tests/                               unit (consolidation, RRF, SSRF, keys) + integration
+deploy/                             per-harness wiring recipes (8 surfaces)
+AGENTS.md                            self-service onboarding for agent harnesses
+tests/                               unit (consolidation, RRF, SSRF, keys, graph) + integration
 ```
 
 ## API examples (PRD §9 shapes)
@@ -79,12 +80,19 @@ curl -s -H "Authorization: Bearer $KEY" 'http://localhost:8738/v1/brain_digest?s
 ```
 
 Every MCP tool mirrors these 1:1 (`brain_context`, `brain_search`, `brain_recent`,
-`brain_digest`, `brain_read`, `brain_note`, `brain_log_action`,
+`brain_digest`, `brain_read`, `brain_graph`, `brain_note`, `brain_log_action`,
 `brain_log_decision`, `brain_lesson`, `brain_capture_url`, `brain_entities`,
 `brain_facts_about`, `brain_supersede_fact`, `brain_queue_add/claim/complete`,
 `brain_agents`). Tool names are stable across Brainstem/Cortex/Hive (NFR-8).
 
+Agent harnesses pointed at this repo self-onboard via `AGENTS.md` — it
+explains the service, how to mint an identity, which deploy recipe to
+follow, and the repo invariants.
+
 ## Wiring each harness
+
+One command per new harness (mints the key + prints the paste-ready config):
+`scripts/wire-harness.sh <cursor|vscode|claude-code|claude-desktop|goose|vibe|dsh> "<Name>"`
 
 | Harness | Recipe |
 |---|---|
@@ -112,9 +120,12 @@ The shared constitution (session protocol every agent follows) is
 - **Purge:** the only sanctioned event purge is the audited
   `scripts/purge_events.py --confirm`.
 - **LLM setup (optional):** point `CORTEX_LLM_BASE_URL` at any
-  OpenAI-compatible endpoint (DeepSeek API, ollama). Without it the librarian
-  still embeds events, projects decisions/lessons deterministically, and raw
-  search works — extraction simply stays off.
+  OpenAI-compatible endpoint (DeepSeek API, ollama, LM Studio via
+  `http://host.docker.internal:1234/v1`, OpenRouter free tiers — set
+  `CORTEX_LLM_JSON_MODE=false` for providers that reject structured output).
+  Without it the librarian still embeds events, projects decisions/lessons
+  and tool-use deterministically, and raw search works — extraction simply
+  stays off.
 
 ## Tests
 

@@ -30,11 +30,21 @@ resources/prompts — matches the plugin contract).
 ## 3. `brain` shell wrapper (works without any plugin)
 
 ```bash
-sudo cp scripts/brain /usr/local/bin/brain && sudo chmod +x /usr/local/bin/brain
-export CORTEX_URL=http://cortex.local:8738
-export CORTEX_KEY=cx-dsh-<secret>
+mkdir -p ~/.local/bin && cp scripts/brain ~/.local/bin/brain && chmod +x ~/.local/bin/brain
+# key file (one "agent-id=cx-…" line per harness):
+mkdir -p ~/.config/cortex
+echo "dsh=cx-dsh-<secret>" >> ~/.config/cortex/agent-keys.key && chmod 600 ~/.config/cortex/agent-keys.key
+export PATH="$HOME/.local/bin:$PATH"
 brain context; brain search "vector database"; brain log-action "wired dsh" --outcome ok
 ```
+
+The wrapper resolves credentials in order: `CORTEX_KEY` env → key file
+(`CORTEX_KEY_FILE` or `~/.config/cortex/agent-keys.key`; `CORTEX_AGENT`
+picks the line, default `dsh`) → a bare-key file. `CORTEX_URL` defaults to
+`http://localhost:8738` (no need to export it on the Cortex box itself).
+Subcommands: context, search, recent, digest, read, note, log-action,
+log-decision, lesson, capture-url, entities, facts-about, graph [project],
+queue, queue-claim, queue-complete, agents.
 
 The DSH bash tool + headless wrapper complete search/context/log-action via
 bash (FR-8 AC).

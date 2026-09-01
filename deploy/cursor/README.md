@@ -1,6 +1,6 @@
 # Cursor wiring
 
-Extends the PRD's six harnesses to a seventh: Cursor's agent (chat, Composer,
+Extends the brain to another harness surface: Cursor's agent (chat, Composer,
 background/terminal agents) speaks MCP, so it gets the full `brain_*` toolset.
 No hooks system → logging is constitution-prompted (the model calls the tools,
 like Claude Desktop), not auto-captured.
@@ -8,11 +8,14 @@ like Claude Desktop), not auto-captured.
 ## 1. Register an agent + key
 
 ```bash
-cd ~/Projects/Cortex
-docker compose run --rm cortex cortex admin create-agent cursor \
-  --name "Cursor" --harness cursor
-# → cx-cursor-<secret>   (shown ONCE — store it in your password manager)
+# from the repo root on the Cortex host — one command, prints the key AND
+# the ready-to-paste mcp.json:
+scripts/wire-harness.sh cursor Cursor
 ```
+
+(or the manual equivalent: `docker compose run --rm cortex cortex admin
+create-agent cursor --name "Cursor" --harness cursor` — key shown ONCE, store
+it in your password manager)
 
 ## 2. MCP server
 

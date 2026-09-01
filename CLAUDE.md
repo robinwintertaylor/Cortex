@@ -1,5 +1,9 @@
 # Cortex — notes for agents working in this repo
 
+Read `AGENTS.md` first — it is the self-service onboarding (what the brain
+is, how to wire a harness in, tool surface, hard invariants). This file adds
+Claude-Code-specific notes.
+
 ## Bugs fixed 2026-09-01
 
 - **`cortex/security.py` — `resolve_bearer` mis-parsed agent ids containing

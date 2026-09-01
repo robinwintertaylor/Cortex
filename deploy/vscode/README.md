@@ -8,11 +8,14 @@ as Claude Desktop).
 ## 1. Register an agent + key
 
 ```bash
-cd ~/Projects/Cortex
-docker compose run --rm cortex cortex admin create-agent vscode \
-  --name "VS Code Copilot" --harness vscode
-# → cx-vscode-<secret>   (shown ONCE — store it in your password manager)
+# from the repo root on the Cortex host — one command, prints the key AND
+# the ready-to-paste .vscode/mcp.json:
+scripts/wire-harness.sh vscode "VS Code Copilot"
 ```
+
+(or the manual equivalent: `docker compose run --rm cortex cortex admin
+create-agent vscode --name "VS Code Copilot" --harness vscode` — key shown
+ONCE, store it in your password manager)
 
 ## 2. MCP server
 
