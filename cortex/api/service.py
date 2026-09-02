@@ -333,7 +333,7 @@ async def graph(conn, agent, *, project: str | None = None, history: bool = Fals
         proj_where = ""
     facts_rows = await conn.fetch(
         f"""
-        SELECT f.* FROM facts f
+        SELECT f.*, e.project AS project FROM facts f
         LEFT JOIN events e ON e.id = f.episode_id
         WHERE TRUE{proj_where}
         ORDER BY f.valid_from DESC

@@ -27,14 +27,14 @@ def doc_link(note_id, entity_id, score=0.7, method=None):
 
 
 def fact(id, subj, subj_name, pred, obj_text, obj=None, valid_to=None,
-         kind="extracted", confidence=0.8, harness=None, agent=None):
+         kind="extracted", confidence=0.8, harness=None, agent=None, project=None):
     from datetime import datetime, timezone
 
     return Row({"id": id, "subj": subj, "subj_name": subj_name, "pred": pred,
                 "obj": obj, "obj_text": obj_text, "valid_from":
                 datetime.now(timezone.utc), "valid_to": valid_to,
                 "kind": kind, "confidence": confidence,
-                "harness": harness, "agent": agent})
+                "harness": harness, "agent": agent, "project": project})
 
 
 def test_entities_become_nodes():
@@ -227,6 +227,41 @@ def test_doc_kind_and_harness_appear_in_legends():
     g = build_graph(ents, [], docs=docs_)
     assert {k["name"] for k in g["kinds"]} == {"doc"}
     assert {h["name"] for h in g["harnesses"]} == {"goose"}
+
+
+def test_node_project_is_majority_vote_across_touching_facts():
+    ents = [entity("u1", "cortex", "project")]
+    facts_ = [
+        fact("f1", "u1", "cortex", "a", "x", project="second-brain"),
+        fact("f2", "u1", "cortex", "b", "y", project="second-brain"),
+        fact("f3", "u1", "cortex", "c", "z", project="cortex-setup"),
+    ]
+    g = build_graph(ents, facts_)
+    node = next(n for n in g["nodes"] if n["label"] == "cortex")
+    assert node["project"] == "second-brain"
+
+
+def test_node_with_no_project_scoped_facts_has_null_project():
+    ents = [entity("u1", "cortex", "project")]
+    facts_ = [fact("f1", "u1", "cortex", "a", "x")]  # no project on the episode
+    g = build_graph(ents, facts_)
+    node = next(n for n in g["nodes"] if n["label"] == "cortex")
+    assert node["project"] is None
+
+
+def test_doc_project_is_authoritative_not_voted():
+    docs_ = [doc("d1", "Design notes", project="cortex")]
+    g = build_graph([], [], docs=docs_)
+    doc_node = next(n for n in g["nodes"] if n["group"] == "doc")
+    assert doc_node["project"] == "cortex"
+
+
+def test_projects_list_reflects_surviving_nodes_with_colors():
+    ents = [entity("u1", "cortex", "project"), entity("u2", "postgres", "tech")]
+    facts_ = [fact("f1", "u1", "cortex", "uses", "postgres", obj="u2", project="second-brain")]
+    g = build_graph(ents, facts_)
+    assert {p["name"] for p in g["projects"]} == {"second-brain"}
+    assert g["projects"][0]["color"].startswith("#")
 
 
 def test_harnesses_and_kinds_summarize_surviving_edges_only():

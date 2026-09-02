@@ -45,6 +45,14 @@ HARNESS_PALETTE = [
     "#ff007c", "#a9b1d6", "#b4f9f8", "#89ddff",
 ]
 
+# distinct from both palettes above so a project-cluster fill never reads as
+# a harness-identity or entity-type color (see graph.html's vis-network
+# clustering: each project collapses into one node in this fill color).
+PROJECT_PALETTE = [
+    "#f6c177", "#ebbcba", "#9ccfd8", "#c4a7e7",
+    "#eb6f92", "#31748f", "#e0def4", "#908caa",
+]
+
 
 def build_graph(entities: Iterable[Any], facts: Iterable[Any], *,
                 docs: Iterable[Any] | None = None,
@@ -55,7 +63,10 @@ def build_graph(entities: Iterable[Any], facts: Iterable[Any], *,
 
     entities:  rows with (id, name, etype, summary)
     facts:     rows with (id, subj, subj_name, pred, obj, obj_text,
-                          valid_from, valid_to, kind, confidence)
+                          valid_from, valid_to, kind, confidence); an
+                          optional `project` (from the joined event) feeds
+                          each touched node's project-cluster assignment —
+                          see `projects` in the return value.
     docs:      rows with (id, title, note_type, project, tags, author,
                           source_url, original_filename, links) — project docs
                           and uploaded files (cortex/notes.py, cortex/files.py).
@@ -76,6 +87,17 @@ def build_graph(entities: Iterable[Any], facts: Iterable[Any], *,
     """
     nodes: dict[str, dict] = {}
     edges: list[dict] = []
+    # node id -> project -> vote count, from every fact that touches it (an
+    # entity can appear in facts from several projects; the majority wins).
+    # Doc nodes skip voting entirely — notes.project is authoritative, no
+    # need to infer it (see the doc loop below).
+    proj_votes: dict[str, dict[str, int]] = {}
+
+    def vote_project(node_id: str | None, project: str | None) -> None:
+        if not node_id or not project:
+            return
+        d = proj_votes.setdefault(node_id, {})
+        d[project] = d.get(project, 0) + 1
 
     def node_for(uuid, name, group, title) -> dict | None:
         if uuid is None:
@@ -122,6 +144,8 @@ def build_graph(entities: Iterable[Any], facts: Iterable[Any], *,
                 continue
             obj_key = f"lit:{_norm_name(obj_label)}"
             o_node = _synthetic(obj_key, obj_label, "value", nodes)
+        vote_project(s_node["id"], f.get("project"))
+        vote_project(o_node["id"], f.get("project"))
         kind = f["kind"]
         # provenance: the caller left-joins events so harness/agent travel
         # alongside the fact row; older/backfilled facts may have neither.
@@ -173,6 +197,7 @@ def build_graph(entities: Iterable[Any], facts: Iterable[Any], *,
         nodes[doc_id] = {
             "id": doc_id, "label": str(label), "group": "doc",
             "title": "\n".join(title_bits), "value": 1,
+            "project": row.get("project"),  # authoritative — no need to vote
         }
         candidates = [row.get("project")] + list(row.get("tags") or []) \
             + list(row.get("links") or [])
@@ -254,6 +279,17 @@ def build_graph(entities: Iterable[Any], facts: Iterable[Any], *,
              "color": harness_colors.get(h, DEFAULT_KIND_COLOR)}
             for h, cnt in sorted(c.items(), key=lambda kv: -kv[1])
         ] if total else []
+        # doc nodes already carry their authoritative project (see the doc
+        # loop above); everything else gets whichever project's facts
+        # outvoted the rest, or None if it never appeared in a project-
+        # scoped fact (raw hook auto-capture, mostly).
+        if "project" not in node:
+            votes = proj_votes.get(nid)
+            node["project"] = max(votes, key=votes.get) if votes else None
+
+    projects_used = sorted({n["project"] for n in nodes.values() if n["project"]})
+    project_colors = {p: PROJECT_PALETTE[i % len(PROJECT_PALETTE)]
+                      for i, p in enumerate(projects_used)}
 
     return {
         "nodes": list(nodes.values()),
@@ -261,6 +297,7 @@ def build_graph(entities: Iterable[Any], facts: Iterable[Any], *,
         "stats": {"entities": len(nodes), "facts": len(edges)},
         "harnesses": [{"name": h, "color": harness_colors[h]} for h in harnesses_used],
         "kinds": [{"name": k, "color": KIND_COLORS.get(k, DEFAULT_KIND_COLOR)} for k in kinds_used],
+        "projects": [{"name": p, "color": project_colors[p]} for p in projects_used],
     }
 
 

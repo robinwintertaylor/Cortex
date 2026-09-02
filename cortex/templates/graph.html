@@ -95,6 +95,12 @@
         <div class="legend-row"><span style="color:#9ece6a">●</span> tool / tech / concept / other</div>
       </div>
       <div class="legend-block">
+        <div class="legend-title">Project clusters</div>
+        <p class="dim" style="margin:0">Large colored circles are collapsed
+        projects (2+ nodes) — click one to expand it back to the individual
+        nodes.</p>
+      </div>
+      <div class="legend-block">
         <div class="legend-title">Ring = who said it</div>
         <p class="dim" style="margin:0">The colored ring around a node is
         split by which harness logged the facts touching it — hover a node
@@ -189,12 +195,20 @@ function drawShapePath(ctx, group, x, y, r) {
 const HOVER_SCREEN_RADIUS = 24;
 const HOVER_SCREEN_FONT = 14;
 
+// network.cluster() manages its synthetic cluster nodes internally — it
+// never adds them to the `nodes` DataSet we hold, so nodes.get(clusterId)
+// always misses and customRenderer would fall back to the default fill.
+// Populated below once clusters are created; keyed separately instead of
+// nodes.add()-ing a matching item (which risks a second, conflicting
+// definition of the same id fighting vis's own cluster bookkeeping).
+const clusterFills = {};
+
 function customRenderer({ ctx, id, x, y, state: { selected, hover }, style, label }) {
   const n = nodes.get(id) || {};
   const baseSize = style.size || 14;
   const zoom = network.getScale() || 1;
   const size = hover ? Math.max(baseSize, HOVER_SCREEN_RADIUS / zoom) : baseSize;
-  const fill = n.fill || "#7aa2f7";
+  const fill = clusterFills[id] || n.fill || "#7aa2f7";
   const alpha = n._alpha == null ? 1 : n._alpha;
   return {
     nodeDimensions: { width: baseSize * 2.4, height: baseSize * 2.4 },
@@ -275,6 +289,36 @@ const network = new vis.Network(container, { nodes, edges }, {
     color: { inherit: false, highlight: "#e6e6e6", hover: "#c7cddb" },
     width: 1.4,
   },
+});
+
+// ── cluster nodes by project: 149 loose entities is one undifferentiated
+// mass by default (see the connected-component note in the physics config
+// above — most of them really are one component, so spreading can't fix
+// it). Collapsing each project's members into a single node up front is
+// what actually makes a full graph legible; click a cluster to expand it
+// back to the individuals. Skips projects with only one member — a
+// "cluster" of one is just visual noise, not a simplification.
+const projectCounts = {};
+data.nodes.forEach(n => { if (n.project) projectCounts[n.project] = (projectCounts[n.project] || 0) + 1; });
+const projectColors = Object.fromEntries(data.projects.map(p => [p.name, p.color]));
+Object.entries(projectCounts).forEach(([project, count]) => {
+  if (count < 2) return;
+  const clusterId = `cluster:${project}`;
+  clusterFills[clusterId] = projectColors[project] || "#565f73";
+  network.cluster({
+    joinCondition: opts => opts.project === project,
+    clusterNodeProperties: {
+      id: clusterId,
+      label: `${project} (${count})`,
+      title: `${count} nodes in project "${project}" — click to expand`,
+      shape: "custom",
+      group: "other",
+      scaling: { min: 6, max: 30 },
+      value: count,
+      project,
+      _alpha: 1,
+    },
+  });
 });
 
 // physics stays on only long enough to settle the initial layout — left
@@ -455,6 +499,17 @@ function showNodeDetail(id) {
 network.on("click", params => {
   if (params.nodes.length === 0) { exitFocus(); return; }
   const id = params.nodes[0];
+  if (network.isCluster(id)) {
+    network.openCluster(id);
+    // the click's implicit mousemove hover-focused the cluster right
+    // before it vanished; without this the graph reads as stuck fully
+    // dimmed (focus pointing at an id that no longer exists) until the
+    // mouse happens to move again.
+    hoverId = null;
+    lockedId = null;
+    refreshVisuals();
+    return;
+  }
   lockedId = id;
   refreshVisuals();
   showNodeDetail(id);

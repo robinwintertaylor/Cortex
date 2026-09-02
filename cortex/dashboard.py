@@ -202,7 +202,7 @@ async def graph_page(request: Request, project: str | None = None,
             proj_where = f" AND (e.project = ${len(args)} OR e.project IS NULL)"
         facts_rows = await conn.fetch(
             f"""
-            SELECT f.*, e.agent AS agent, e.harness AS harness
+            SELECT f.*, e.agent AS agent, e.harness AS harness, e.project AS project
             FROM facts f
             LEFT JOIN events e ON e.id = f.episode_id
             WHERE TRUE{proj_where}
