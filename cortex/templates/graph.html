@@ -72,6 +72,7 @@
     <button>redraw</button>
   </form>
   <input type="text" id="searchbox" placeholder="search nodes… (enter)">
+  <label><input type="checkbox" id="cluster-toggle"> cluster by project</label>
   <div class="chip-row" id="harness-chips"><span class="chip-label">harness</span></div>
   <div class="chip-row" id="kind-chips"><span class="chip-label">type</span></div>
   <span class="dim" id="graph-count" style="margin-left:auto">{{ graph.stats.entities }} entities · {{ graph.stats.facts }} facts</span>
@@ -96,9 +97,10 @@
       </div>
       <div class="legend-block">
         <div class="legend-title">Project clusters</div>
-        <p class="dim" style="margin:0">Large colored circles are collapsed
-        projects (2+ nodes) — click one to expand it back to the individual
-        nodes.</p>
+        <p class="dim" style="margin:0">Off by default. Turn on "cluster by
+        project" above to collapse each project's non-doc nodes into one
+        circle — documents and decisions stay individually visible either
+        way. Click a cluster to expand it back.</p>
       </div>
       <div class="legend-block">
         <div class="legend-title">Ring = who said it</div>
@@ -291,34 +293,57 @@ const network = new vis.Network(container, { nodes, edges }, {
   },
 });
 
-// ── cluster nodes by project: 149 loose entities is one undifferentiated
-// mass by default (see the connected-component note in the physics config
-// above — most of them really are one component, so spreading can't fix
-// it). Collapsing each project's members into a single node up front is
-// what actually makes a full graph legible; click a cluster to expand it
-// back to the individuals. Skips projects with only one member — a
-// "cluster" of one is just visual noise, not a simplification.
-const projectCounts = {};
-data.nodes.forEach(n => { if (n.project) projectCounts[n.project] = (projectCounts[n.project] || 0) + 1; });
+// ── cluster nodes by project — opt-in via the "cluster by project"
+// toggle, off by default. The dense core is genuinely almost all one
+// connected component, so no amount of physics tuning separates it, but
+// clustering everything by default folded away the actual content (docs,
+// decisions) along with the noise and left the view feeling empty rather
+// than organized. So: starts off (full detail), and documents stay
+// individually visible even when clustering is turned on — only the
+// generic entity nodes collapse. Skips projects with only one clusterable
+// member — a "cluster" of one is just visual noise, not a simplification.
 const projectColors = Object.fromEntries(data.projects.map(p => [p.name, p.color]));
-Object.entries(projectCounts).forEach(([project, count]) => {
-  if (count < 2) return;
-  const clusterId = `cluster:${project}`;
-  clusterFills[clusterId] = projectColors[project] || "#565f73";
-  network.cluster({
-    joinCondition: opts => opts.project === project,
-    clusterNodeProperties: {
-      id: clusterId,
-      label: `${project} (${count})`,
-      title: `${count} nodes in project "${project}" — click to expand`,
-      shape: "custom",
-      group: "other",
-      scaling: { min: 6, max: 30 },
-      value: count,
-      project,
-      _alpha: 1,
-    },
+let activeClusterIds = [];
+
+function clusterByProject() {
+  const counts = {};
+  data.nodes.forEach(n => {
+    if (n.project && n.group !== "doc") counts[n.project] = (counts[n.project] || 0) + 1;
   });
+  Object.entries(counts).forEach(([project, count]) => {
+    if (count < 2) return;
+    const clusterId = `cluster:${project}`;
+    clusterFills[clusterId] = projectColors[project] || "#565f73";
+    network.cluster({
+      joinCondition: opts => opts.project === project && opts.group !== "doc",
+      clusterNodeProperties: {
+        id: clusterId,
+        label: `${project} (${count})`,
+        title: `${count} nodes in project "${project}" — click to expand`,
+        shape: "custom",
+        group: "other",
+        scaling: { min: 6, max: 30 },
+        value: count,
+        project,
+        _alpha: 1,
+      },
+    });
+    activeClusterIds.push(clusterId);
+  });
+}
+
+function unclusterAll() {
+  activeClusterIds.forEach(id => { if (network.isCluster(id)) network.openCluster(id); });
+  activeClusterIds = [];
+  hoverId = null;
+  lockedId = null;
+  refreshVisuals();
+}
+
+document.getElementById("cluster-toggle").addEventListener("change", ev => {
+  if (ev.target.checked) clusterByProject();
+  else unclusterAll();
+  network.fit({ animation: { duration: 350, easingFunction: "easeInOutQuad" } });
 });
 
 // physics stays on only long enough to settle the initial layout — left
