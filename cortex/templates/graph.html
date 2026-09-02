@@ -146,7 +146,12 @@ const nodes = new vis.DataSet(data.nodes.map(n => ({
   scaling: { min: 6, max: 30 },
   _alpha: 1,
 })));
-const edges = new vis.DataSet(data.edges.map(e => ({ ...e, _baseColor: e.color.color })));
+// predicate text on every edge (hundreds of them once the graph fills up)
+// was a bigger source of clutter than the nodes — kind is already carried
+// by edge color (see KIND_COLORS / the legend), so drop the on-canvas
+// label and keep the predicate available on demand: hover still shows it
+// via the edge's `title` tooltip, and the side panel prints it per-fact.
+const edges = new vis.DataSet(data.edges.map(e => ({ ...e, _baseColor: e.color.color, font: { size: 0 } })));
 
 function drawShapePath(ctx, group, x, y, r) {
   ctx.beginPath();
