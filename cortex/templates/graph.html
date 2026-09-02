@@ -26,7 +26,7 @@
       var(--bg);
   }
   #net { width:100%; height:100%; }
-  .side-panel { width:320px; height:calc(100vh - 190px); min-height:420px; overflow-y:auto; }
+  .side-panel { width:230px; height:calc(100vh - 190px); min-height:420px; overflow-y:auto; padding:12px 13px; }
   .legend-block { margin-bottom:14px; }
   .legend-title { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin-bottom:6px; }
   .legend-row { display:flex; align-items:center; gap:7px; font-size:12.5px; margin-bottom:5px; }
@@ -252,7 +252,15 @@ const network = new vis.Network(container, { nodes, edges }, {
   layout: { improvedLayout: true },
   physics: {
     stabilization: { iterations: 250, fit: true },
-    barnesHut: { springLength: 130, springConstant: 0.03, avoidOverlap: 0.4 },
+    // low centralGravity: default (0.3) pulls every node toward one shared
+    // center regardless of how the graph is actually connected, which is
+    // what crammed everything into a single blob — barnesHut's repulsion
+    // (below) does the real work of spreading unrelated clusters apart
+    // across the canvas once they're not all being reeled back to a point.
+    barnesHut: {
+      springLength: 130, springConstant: 0.03, avoidOverlap: 0.4,
+      centralGravity: 0.04, gravitationalConstant: -3200,
+    },
   },
   interaction: { hover: true, tooltipDelay: 120, hideEdgesOnDrag: true },
   nodes: { shape: "custom", ctxRenderer: customRenderer, font: { size: 0 } },
@@ -315,16 +323,41 @@ function legendRows(containerId, items, dotClass) {
 legendRows("kind-legend", data.kinds, "sw");
 legendRows("harness-legend", data.harnesses, "dot");
 
-// ── hover-neighborhood focus (dim everything not connected, Obsidian-style)
-let focusId = null;
-function neighborsOf(id) {
-  const edgeIds = network.getConnectedEdges(id);
-  const nb = new Set([id]);
-  edgeIds.forEach(eid => { const e = edges.get(eid); nb.add(e.from); nb.add(e.to); });
-  return nb;
+// ── focus (dim everything outside the focused neighborhood, Obsidian-style)
+// hoverId is transient (mouse over/out); lockedId persists past mouseout —
+// set by clicking a node or a search hit — so you can actually work inside
+// one area of a large graph instead of the focus vanishing the instant the
+// mouse moves to read a label. Hover still wins while active; on mouseout
+// it falls back to whatever's locked.
+let hoverId = null;
+let lockedId = null;
+function currentFocus() { return hoverId || lockedId; }
+
+function neighborsOf(id, depth = 1) {
+  const seen = new Set([id]);
+  let frontier = [id];
+  for (let d = 0; d < depth; d++) {
+    const next = [];
+    frontier.forEach(nid => {
+      network.getConnectedEdges(nid).forEach(eid => {
+        const e = edges.get(eid);
+        if (!e) return;
+        [e.from, e.to].forEach(x => { if (!seen.has(x)) { seen.add(x); next.push(x); } });
+      });
+    });
+    frontier = next;
+  }
+  return seen;
+}
+
+function exitFocus() {
+  lockedId = null;
+  refreshVisuals();
+  network.fit({ animation: { duration: 350, easingFunction: "easeInOutQuad" } });
 }
 
 function refreshVisuals() {
+  const focusId = currentFocus();
   const focusSet = focusId ? neighborsOf(focusId) : null;
   const degree = new Map();
   const edgeUpdates = data.edges.map(orig => {
@@ -358,16 +391,18 @@ function refreshVisuals() {
 }
 refreshVisuals();
 
-network.on("hoverNode", p => { focusId = p.node; refreshVisuals(); });
-network.on("blurNode", () => { focusId = null; refreshVisuals(); });
+network.on("hoverNode", p => { hoverId = p.node; refreshVisuals(); });
+network.on("blurNode", () => { hoverId = null; refreshVisuals(); });
 
-// ── search: jump the camera to the first matching label
+// ── search: jump the camera to the first matching label + lock focus on it
 document.getElementById("searchbox").addEventListener("keydown", ev => {
   if (ev.key !== "Enter") return;
   const q = ev.target.value.trim().toLowerCase();
   if (!q) return;
   const match = data.nodes.find(n => n.label.toLowerCase().includes(q));
   if (!match) return;
+  lockedId = match.id;
+  refreshVisuals();
   network.focus(match.id, { scale: 1.4, animation: { duration: 450, easingFunction: "easeInOutQuad" } });
   network.selectNodes([match.id]);
   showNodeDetail(match.id);
@@ -408,14 +443,26 @@ function showNodeDetail(id) {
     })
     .catch(() => { factsEl.innerHTML += `<p class="dim">detail fetch failed</p>`; });
 }
+// ── click a node: lock focus on its neighborhood (2 hops — wide enough to
+// read as "this area" rather than just the one node) and zoom to fit just
+// that, so you can actually work inside one part of a large graph. Click
+// empty canvas to back out to the full view.
 network.on("click", params => {
-  if (params.nodes.length === 0) return;
-  showNodeDetail(params.nodes[0]);
+  if (params.nodes.length === 0) { exitFocus(); return; }
+  const id = params.nodes[0];
+  lockedId = id;
+  refreshVisuals();
+  showNodeDetail(id);
+  network.fit({
+    nodes: [...neighborsOf(id, 2)],
+    animation: { duration: 350, easingFunction: "easeInOutQuad" },
+  });
 });
 document.getElementById("back-btn").addEventListener("click", () => {
   document.getElementById("side-node").style.display = "none";
   document.getElementById("side-default").style.display = "block";
   network.unselectAll();
+  exitFocus();
 });
 </script>
 {% endblock %}
