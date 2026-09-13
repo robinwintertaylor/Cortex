@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 import asyncpg
 
-from .. import metrics, notes as notes_mod, queue as queue_mod
+from .. import mapproj, metrics, notes as notes_mod, queue as queue_mod, tools as tools_mod
 from ..config import get_config
 from ..db import get_pool, migrate
 from ..embeddings import embed
@@ -28,12 +28,17 @@ from ..facts import (
     bump_confidence,
     current_facts_for_pred,
     get_or_create_entity,
+    is_entity_like,
     supersede,
 )
 from ..log import get_logger
 from . import consolidation, extraction
 
 log = get_logger(__name__)
+
+# predicates whose object is expected to name a tool, so it is worth checking
+# the registry even when the extractor did not flag it as an entity
+_TOOL_PREDS = {"uses_tool", "uses", "runs_on", "built_with", "depends_on"}
 
 
 def _payload(event) -> dict:
@@ -61,7 +66,12 @@ async def _project_tool_use(conn, event, payload) -> None:
         if consolidation.objects_equal(e["obj_text"], tool):
             await bump_confidence(conn, e["id"])
             return
+    # resolve against the declared registry first: a tool the agent registered
+    # is a known entity, so this edge connects two real nodes instead of
+    # dangling at a string. Unregistered tools still record as literals.
+    registered = await tools_mod.resolve(conn, tool)
     await add_fact(conn, subj_name=agent, pred="uses_tool", obj_text=tool,
+                   obj_entity=registered["name"] if registered else None,
                    episode_id=event["id"], kind="observed", confidence=0.7)
 
 
@@ -150,9 +160,21 @@ async def _consolidate_extraction(conn, event, agent_role: str) -> None:
             consolidation.ExistingFact(e["id"], e["subj_name"], e["pred"], e["obj_text"], e["kind"])
             for e in existing
         ], supersessions_today=int(sup_today))
+        # the extractor flags objects that name a thing rather than assert
+        # something; is_entity_like rejects the clauses it over-flags. Without
+        # this the object is stored as bare text and the fact becomes a
+        # dead-end leaf instead of an edge between two entities.
+        obj_entity = f["object"] if (
+            f.get("object_is_entity") and is_entity_like(f["object"])) else None
+        if obj_entity is None and f["predicate"].strip().lower() in _TOOL_PREDS:
+            # a tool named in prose still links, provided it is registered —
+            # that is what the declared registry buys us
+            reg = await tools_mod.resolve(conn, f["object"])
+            obj_entity = reg["name"] if reg else None
         if action is consolidation.Action.ADD:
             await add_fact(conn, subj_name=f["subject"], pred=f["predicate"],
-                          obj_text=f["object"], episode_id=event["id"],
+                          obj_text=f["object"], obj_entity=obj_entity,
+                          episode_id=event["id"],
                           kind="extracted", confidence=0.8, rationale=ex["summary"] or None)
         elif action is consolidation.Action.NOOP:
             for e in existing:
@@ -161,7 +183,8 @@ async def _consolidate_extraction(conn, event, agent_role: str) -> None:
         elif action is consolidation.Action.SUPERSEDE:
             old = next(e for e in existing if not consolidation.objects_equal(e["obj_text"], f["object"]))
             await supersede(conn, old["id"], new_value=f["object"],
-                           rationale=ex["summary"], episode_id=event["id"], kind="extracted")
+                           rationale=ex["summary"], episode_id=event["id"],
+                           kind="extracted", obj_entity=obj_entity)
         else:  # ADJUDICATE — never silently overwrite (AC4)
             old = existing[0]
             await queue_mod.add(
@@ -230,6 +253,19 @@ async def _upsert_doc_link(conn, note_id, entity_id, score: float, method: str =
                           THEN EXCLUDED.method ELSE doc_links.method END
         """,
         note_id, entity_id, score, method,
+    )
+    # Keep only this document's strongest links. Both linking passes query from
+    # opposite sides, so their union is unbounded per document even though each
+    # pass is top-k capped. entity_id breaks score ties so the survivors are
+    # deterministic and `cortex rebuild` reproduces the same set.
+    await conn.execute(
+        """
+        DELETE FROM doc_links WHERE note_id = $1 AND entity_id NOT IN (
+            SELECT entity_id FROM doc_links WHERE note_id = $1
+            ORDER BY score DESC, entity_id LIMIT $2
+        )
+        """,
+        note_id, get_config().doc_link_max_per_doc,
     )
 
 
@@ -348,8 +384,12 @@ async def _agent_role(conn, agent: str) -> str:
     return await conn.fetchval("SELECT role FROM agents WHERE id = $1", agent) or "agent"
 
 
-async def _one_cycle(conn) -> int:
-    """Process a batch of new events + embed pending notes. Returns batch size."""
+async def _one_cycle(conn, *, refresh_map: bool = True) -> int:
+    """Process a batch of new events + embed pending notes. Returns batch size.
+
+    `refresh_map=False` is for rebuilds: the projection is global, so running
+    it per batch would re-run UMAP dozens of times over a full replay. The
+    rebuild does one forced projection at the end instead."""
     rows = await conn.fetch(
         """
         SELECT e.* FROM events e
@@ -402,6 +442,91 @@ async def _one_cycle(conn) -> int:
     if get_config().llm_enabled:
         await _llm_link_pending_notes(conn)
 
+    # last: the map projects whatever the passes above just produced
+    if refresh_map:
+        await _refresh_map(conn)
+
+    return len(rows)
+
+
+async def _refresh_map(conn, *, force: bool = False) -> int:
+    """Recompute cached semantic-map coordinates (cortex/mapproj.py).
+
+    Runs when something embedded is missing coordinates, which is the same
+    condition as "the point set changed". The projection is global — adding one
+    entity moves every point a little — so this rewrites all coordinates rather
+    than patching the new ones in. That is the intended behaviour: the map is
+    reproducible from a given set of embeddings, not frozen forever.
+
+    Returns the number of points projected.
+    """
+    ents = await conn.fetch(
+        """
+        SELECT e.id, e.name AS label, e.embedding, e.map_x,
+               (SELECT count(*) FROM facts f
+                 WHERE f.subj = e.id AND f.valid_to IS NULL) AS weight
+        FROM entities e WHERE e.embedding IS NOT NULL ORDER BY e.id
+        """
+    )
+    docs = await conn.fetch(
+        """
+        SELECT n.id, COALESCE(NULLIF(n.original_filename, ''), n.title) AS label,
+               n.embedding, n.map_x,
+               (SELECT count(*) FROM doc_links dl WHERE dl.note_id = n.id) AS weight
+        FROM notes n WHERE n.embedding IS NOT NULL ORDER BY n.id
+        """
+    )
+    rows = list(ents) + list(docs)
+    if not rows:
+        return 0
+    if not force and all(r["map_x"] is not None for r in rows):
+        return 0
+
+    import numpy as np
+
+    # pgvector hands back its own Vector wrapper, not a plain sequence
+    def _vec(v):
+        if hasattr(v, "to_numpy"):
+            return v.to_numpy()
+        if hasattr(v, "to_list"):
+            return v.to_list()
+        return v
+
+    vectors = np.asarray([_vec(r["embedding"]) for r in rows], dtype=np.float64)
+    coords = mapproj.project_vectors(vectors)
+    labels = mapproj.assign_clusters(coords)
+    clusters = mapproj.name_clusters(labels, coords, [
+        {"label": r["label"], "weight": r["weight"],
+         "is_entity": i < len(ents)}
+        for i, r in enumerate(rows)
+    ])
+
+    n_ent = len(ents)
+    ent_updates, doc_updates = [], []
+    for i, r in enumerate(rows):
+        row = (float(coords[i][0]), float(coords[i][1]), int(labels[i]), r["id"])
+        (ent_updates if i < n_ent else doc_updates).append(row)
+
+    # one transaction: coordinates and their regions are read together, and a
+    # partial write would leave points pointing at regions that no longer exist
+    async with conn.transaction():
+        if ent_updates:
+            await conn.executemany(
+                "UPDATE entities SET map_x=$1, map_y=$2, map_cluster=$3 WHERE id=$4",
+                ent_updates)
+        if doc_updates:
+            await conn.executemany(
+                "UPDATE notes SET map_x=$1, map_y=$2, map_cluster=$3 WHERE id=$4",
+                doc_updates)
+        await conn.execute("DELETE FROM map_clusters")
+        if clusters:
+            await conn.executemany(
+                "INSERT INTO map_clusters (id, name, size, x, y, radius) "
+                "VALUES ($1, $2, $3, $4, $5, $6)",
+                [(c["id"], c["name"], c["size"], c["x"], c["y"], c["radius"])
+                 for c in clusters])
+    log.info("map reprojected: %s points, %s regions (%s)",
+             len(rows), len(clusters), mapproj.method())
     return len(rows)
 
 
@@ -422,6 +547,15 @@ async def _update_lag(conn) -> None:
     metrics.queue_depth.labels("adjudication").set(open_adj)
 
 
+async def project_map(force: bool = False) -> int:
+    """Recompute the semantic map's cached coordinates (the `cortex project-map`
+    entry point). Mirrors rebuild(): owns its own pool, safe to run standalone."""
+    await migrate()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await _refresh_map(conn, force=force)
+
+
 async def rebuild(from_id: int = 0) -> None:
     """FR-5 AC3: rebuild from the log. Clears projections, replays events."""
     pool = await get_pool()
@@ -433,20 +567,25 @@ async def rebuild(from_id: int = 0) -> None:
             await conn.execute("DELETE FROM lessons")
             await conn.execute("DELETE FROM librarian_state")
             await conn.execute("DELETE FROM notes WHERE derived")
-            await conn.execute("UPDATE notes SET embedding = NULL, llm_linked_at = NULL")
+            await conn.execute("DELETE FROM tools")
+            await conn.execute("DELETE FROM map_clusters")
+            await conn.execute(
+                "UPDATE notes SET embedding = NULL, llm_linked_at = NULL, "
+                "map_x = NULL, map_y = NULL, map_cluster = NULL")
             await conn.execute("UPDATE events SET embedding = NULL")
             await conn.execute("DELETE FROM queue WHERE kind = 'adjudication' AND status = 'open'")
         total = await conn.fetchval("SELECT count(*) FROM events WHERE id >= $1", from_id)
         log.info("rebuild: replaying %s events from id %s", total, from_id)
         done = 0
         while True:
-            n = await _one_cycle(conn)
+            n = await _one_cycle(conn, refresh_map=False)
             done += n
             if n == 0:
                 break
             if total:
                 print(f"\r  {done}/{total}", end="", file=sys.stderr)
         print(file=sys.stderr)
+        await _refresh_map(conn, force=True)
         log.info("rebuild complete: %s events replayed", done)
 
 

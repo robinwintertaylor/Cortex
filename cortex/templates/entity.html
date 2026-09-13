@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% from "_macros.html" import empty, agent_chip, project_tag, entity_link, type_dot, kind_badge, ts, stat %}
+{% block title %}Cortex — {{ name }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h2>{{ type_dot(entity.etype if entity and entity.etype else "untyped") }} {{ name }}</h2>
+  {% if entity and entity.etype %}<span class="tag">{{ entity.etype }}</span>
+  {% else %}<span class="tag plain">untyped</span>{% endif %}
+  {% if region %}<span class="tag plain">region: {{ region }}</span>{% endif %}
+  <span class="spacer"></span>
+  <a class="pill" href="/map">see on map →</a>
+</div>
+
+{% if not entity %}
+<div class="card">
+  {{ empty("No entity row by this name — showing whatever facts reference it.") }}
+</div>
+{% endif %}
+
+{% if entity and entity.summary %}
+<div class="card" style="margin-bottom:12px">
+  <p class="quote" style="color:var(--text-soft)">{{ entity.summary }}</p>
+</div>
+{% endif %}
+
+<div class="grid cols-3" style="margin-bottom:14px">
+  {{ stat("facts out", outbound | selectattr("status", "equalto", "active") | list | length) }}
+  {{ stat("facts in", inbound | length, muted=(inbound | length == 0)) }}
+  {{ stat("documents", docs | length) }}
+  {{ stat("episodes", episodes | length) }}
+</div>
+
+<div class="grid cols-wide">
+  <section class="card">
+    <p class="label">Facts about {{ name }}</p>
+    {% if outbound %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>predicate</th><th>object</th><th>who</th></tr></thead>
+        <tbody>
+          {% for f in outbound %}
+          <tr {% if f.status == "superseded" %}style="opacity:.55"{% endif %}>
+            {# kind rides with the predicate: as its own column it pushed
+               provenance off the edge of the card #}
+            <td class="dim">
+              {{ f.predicate }}
+              <div style="margin-top:3px">{{ kind_badge(f.kind) }}</div>
+            </td>
+            <td>
+              {% if f.obj_name %}{{ entity_link(f.obj_name, f.obj_etype) }}
+              {% elif f.status == "superseded" %}<s class="dimmer">{{ f.object }}</s>
+              {% else %}<span class="dim">{{ f.object }}</span>{% endif %}
+            </td>
+            <td class="nowrap">{{ agent_chip(f.harness) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}{{ empty("No facts recorded.") }}{% endif %}
+  </section>
+
+  <section class="card">
+    <p class="label">Facts pointing here</p>
+    {% if inbound %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>subject</th><th>predicate</th><th>who</th></tr></thead>
+        <tbody>
+          {% for f in inbound %}
+          <tr>
+            <td class="nowrap">{{ entity_link(f.subject) }}</td>
+            <td class="dim nowrap">{{ f.predicate }}</td>
+            <td class="nowrap">{{ agent_chip(f.harness) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    {{ empty("Nothing points here yet — inbound edges exist only for facts whose
+              object resolved to an entity.") }}
+    {% endif %}
+
+    {% if contributors %}
+    <p class="label" style="margin-top:16px">Contributors</p>
+    <div class="row" style="gap:5px">
+      {% for who, n in contributors %}
+      <span class="agent-chip"><span class="dot"></span>{{ who }} · {{ n }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <p class="label">Documents · {{ docs | length }}</p>
+    {% if docs %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>document</th><th>project</th><th class="num">score</th><th>via</th></tr></thead>
+        <tbody>
+          {% for d in docs %}
+          <tr>
+            <td><a href="/documents?q={{ d.label | urlencode }}">{{ d.label }}</a></td>
+            <td class="nowrap">{{ project_tag(d.project) }}</td>
+            <td class="num dim">{{ d.score }}</td>
+            <td class="nowrap dimmer small">{{ d.method }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}{{ empty("No linked documents.") }}{% endif %}
+
+    {% if neighbours %}
+    <p class="label" style="margin-top:16px">Nearby on the map</p>
+    <div class="row" style="gap:5px">
+      {% for n in neighbours %}{{ entity_link(n.name, n.etype) }}{% if not loop.last %}<span class="dimmer">·</span>{% endif %}{% endfor %}
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <p class="label">Lessons mentioning it</p>
+    {% if lessons %}
+    <div class="stack" style="gap:8px">
+      {% for l in lessons %}
+      <p class="quote small" style="margin:0">{{ l.statement[:260] }}{% if l.statement | length > 260 %}…{% endif %}</p>
+      {% endfor %}
+    </div>
+    {% else %}{{ empty("No lessons mention it.") }}{% endif %}
+
+    <p class="label" style="margin-top:16px">Episodes</p>
+    {% if episodes %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>when</th><th>agent</th><th>kind</th><th>what</th></tr></thead>
+        <tbody>
+          {% for e in episodes[:12] %}
+          <tr>
+            <td class="nowrap">{{ ts(e.ts, 16) }}</td>
+            <td class="nowrap">{{ agent_chip(e.agent) }}</td>
+            <td class="nowrap dim">{{ e.kind }}</td>
+            <td class="dim clamp-2">{{ e.payload.title or e.payload.summary or e.payload.statement or "" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}{{ empty("No episodes produced facts about this.") }}{% endif %}
+  </section>
+</div>
+{% endblock %}

@@ -23,6 +23,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Semantic map (cortex/mapproj.py). Optional on purpose: without it the
+# projection falls back to numpy-only PCA + k-means, which still renders a map,
+# just with looser separation. numpy itself already ships via fastembed.
+map = [
+    "umap-learn>=0.5",
+    "scikit-learn>=1.5",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -40,7 +47,7 @@ build-backend = "setuptools.build_meta"
 packages = ["cortex", "cortex.api", "cortex.librarian"]
 
 [tool.setuptools.package-data]
-cortex = ["templates/*.html"]
+cortex = ["templates/*.html", "templates/static/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

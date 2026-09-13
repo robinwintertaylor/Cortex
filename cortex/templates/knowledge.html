@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% from "_macros.html" import empty, agent_chip, project_tag, entity_link, type_dot, kind_badge %}
+{% block title %}Cortex — knowledge{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h2>Knowledge</h2>
+  <p class="lede">What the brain believes, and what it learned the hard way.</p>
+</div>
+
+<div class="filters">
+  <nav class="seg" style="max-width:340px">
+    {% for key, label, n in [("entities", "Entities", totals.entities),
+                             ("facts", "Facts", totals.facts),
+                             ("lessons", "Lessons", totals.lessons)] %}
+    <a class="seg-link" href="/knowledge?tab={{ key }}{% if q %}&q={{ q | urlencode }}{% endif %}"
+       style="flex:1;text-align:center;padding:6px 10px;font-size:11px;
+              background:{% if tab == key %}#1b2030{% else %}var(--inset){% endif %};
+              color:{% if tab == key %}var(--accent){% else %}var(--dimmer){% endif %};
+              text-decoration:none;border-left:{% if not loop.first %}1px solid var(--edge-hi){% else %}none{% endif %}">
+      {{ label }} <span class="mono-num">{{ n }}</span>
+    </a>
+    {% endfor %}
+  </nav>
+  <form method="get" action="/knowledge" class="row" style="gap:6px;margin-left:auto">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="search" name="q" value="{{ q }}" placeholder="filter {{ tab }}…">
+    <button type="submit">filter</button>
+    {% if q %}<a class="small dim" href="/knowledge?tab={{ tab }}">clear</a>{% endif %}
+  </form>
+</div>
+
+<div class="card">
+{% if tab == "entities" %}
+  {% if entities %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>entity</th><th>type</th><th class="num">facts out</th>
+        <th class="num">facts in</th><th class="num">docs</th><th>summary</th>
+      </tr></thead>
+      <tbody>
+        {% for e in entities %}
+        <tr>
+          <td class="nowrap">{{ entity_link(e.name) }}</td>
+          <td class="nowrap">
+            {{ type_dot(e.etype or "untyped") }}
+            <span class="{% if not e.etype %}dimmer{% else %}dim{% endif %}">{{ e.etype or "untyped" }}</span>
+          </td>
+          <td class="num">{{ e.fact_count }}</td>
+          <td class="num {% if e.inbound_count %}ok{% else %}dimmer{% endif %}">{{ e.inbound_count }}</td>
+          <td class="num dim">{{ e.doc_count }}</td>
+          <td class="dim clamp-2">{{ e.summary or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}{{ empty("No entities match.") }}{% endif %}
+
+{% elif tab == "facts" %}
+  {% if facts %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>subject</th><th>predicate</th><th>object</th><th>kind</th>
+        <th>project</th><th class="num">conf</th>
+      </tr></thead>
+      <tbody>
+        {% for f in facts %}
+        <tr>
+          <td class="nowrap">{{ entity_link(f.subject) }}</td>
+          <td class="dim nowrap">{{ f.predicate }}</td>
+          <td>
+            {% if f.object_entity_id %}
+              {{ entity_link(f.object) }}
+            {% else %}
+              <span class="dim">{{ f.object }}</span>
+            {% endif %}
+          </td>
+          <td class="nowrap">{{ kind_badge(f.kind) }}</td>
+          <td class="nowrap">{{ project_tag(f.project) }}</td>
+          <td class="num dim">{{ "%.2f" | format(f.confidence) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="small dimmer" style="margin-top:10px">
+    A linked object is a real edge; a plain one is a dead end. Objects only
+    resolve to entities when the extractor marks them as a name and it reads
+    like one.
+  </p>
+  {% else %}{{ empty("No facts match.") }}{% endif %}
+
+{% else %}
+  {% if lessons %}
+  <div class="stack" style="gap:10px">
+    {% for l in lessons %}
+    <div>
+      <p class="quote" style="color:var(--text-soft)">{{ l.statement }}</p>
+      <div class="row small dimmer" style="gap:8px;margin-top:4px">
+        {{ project_tag(l.project) }}
+        <span class="{% if l.status == 'active' %}ok{% else %}dimmer{% endif %}">{{ l.status }}</span>
+        <span class="mono-num">conf {{ "%.2f" | format(l.confidence) }}</span>
+        {% if l.verified_by %}<span>verified by {{ l.verified_by }}</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}{{ empty("No lessons match.") }}{% endif %}
+{% endif %}
+</div>
+{% endblock %}

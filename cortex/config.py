@@ -80,9 +80,19 @@ class Config:
 
     # doc↔entity embedding linking (graph view): minimum cosine similarity to
     # record a link, and how many nearest matches to consider per side.
+    # 0.55 on 1024-d text embeddings effectively means "both are English" — it
+    # produced 725 links over 43 docs (avg 17, worst 50), which was the graph's
+    # single largest source of clutter. 0.75 is where the score histogram
+    # separates real topical matches from ambient similarity.
     doc_link_min_score: float = field(default_factory=lambda: float(os.environ.get(
-        "CORTEX_DOC_LINK_MIN_SCORE", "0.55")))
+        "CORTEX_DOC_LINK_MIN_SCORE", "0.75")))
     doc_link_top_k: int = field(default_factory=lambda: _int("CORTEX_DOC_LINK_TOP_K", 5))
+    # top_k caps candidates per *query*, and both passes below query from
+    # opposite sides (top-k notes per entity, top-k entities per note), so
+    # their union can still leave one doc with dozens of links. This is the
+    # cap on what a single document ends up carrying.
+    doc_link_max_per_doc: int = field(default_factory=lambda: _int(
+        "CORTEX_DOC_LINK_MAX_PER_DOC", 8))
 
     @property
     def llm_enabled(self) -> bool:

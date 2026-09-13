@@ -306,6 +306,53 @@ async def facts_about(conn, agent, *, entity: str, history: bool = False) -> dic
     return {"entity": entity, "facts": [facts.fact_to_dict(r) for r in rows]}
 
 
+async def declare_tools(conn, agent, *, tools, session: str | None = None,
+                        replace: bool = True) -> dict:
+    """Register the tools/MCP servers this agent can reach (FR-1 adjacent).
+
+    Declared, never inferred: the point of the registry is to give the fact
+    extractor a closed vocabulary so `uses_tool` objects resolve to real
+    entities instead of text. Identity comes from the verified key, so an agent
+    can only ever declare its own toolset."""
+    from .. import tools as tools_mod
+
+    records = tools_mod.normalize(tools)
+    async with conn.transaction():
+        ev = await events.append(
+            conn, agent=agent["id"], kind="tool_declaration",
+            harness=agent.get("harness"), session=session,
+            payload={"tools": records, "replace": bool(replace)},
+        )
+        rows = await tools_mod.declare(
+            conn, agent=agent["id"], tools=records,
+            event_id=ev["id"] if ev else None, replace=replace)
+    return {
+        "event_id": ev["id"] if ev else None,
+        "declared": len(rows),
+        "tools": [tools_mod.tool_to_dict(r) for r in rows],
+        "status": "active",
+    }
+
+
+async def agent_tools(conn, agent, *, agent_id: str | None = None) -> dict:
+    """The tool registry — one agent's, or the whole brain's."""
+    from .. import tools as tools_mod
+
+    rows = (await tools_mod.for_agent(conn, agent_id) if agent_id
+            else await tools_mod.registry(conn))
+    return {"tools": [tools_mod.tool_to_dict(r) for r in rows], "count": len(rows)}
+
+
+async def map_view(conn, agent, *, project: str | None = None,
+                   limit: int = 2000) -> dict:
+    """Semantic map (FR-13): every entity and document placed by embedding
+    similarity, from coordinates the librarian cached. Unlike brain_graph this
+    is a stable layout — the same input always lands in the same place."""
+    from ..mapproj import load_map
+
+    return await load_map(conn, project=project, limit=limit)
+
+
 async def graph(conn, agent, *, project: str | None = None, history: bool = False,
                 limit: int = 300) -> dict:
     """Knowledge-graph view (FR-13): entities as nodes, facts as edges —

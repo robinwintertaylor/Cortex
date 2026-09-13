@@ -12,6 +12,7 @@ from typing import Any
 import asyncpg
 
 from .events import append
+from .projects import canonical
 
 
 async def add(
@@ -29,7 +30,7 @@ async def add(
         INSERT INTO queue (kind, title, detail, project, created_by, fact_id)
         VALUES ($1, $2, $3::jsonb, $4, $5, $6) RETURNING *
         """,
-        kind, title, _dump(detail), project, created_by,
+        kind, title, _dump(detail), canonical(project), created_by,
         uuid.UUID(fact_id) if fact_id else None,
     )
 

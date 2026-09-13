@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% from "_macros.html" import stat, empty, agent_chip, entity_link, project_tag, ts %}
+{% block title %}Cortex — briefing{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h2>Briefing</h2>
+  <p class="lede">What changed, and what is waiting.</p>
+  <span class="spacer"></span>
+  <form method="get" action="/" class="row" style="gap:6px">
+    <label for="since">since</label>
+    <select id="since" name="since" onchange="this.form.submit()">
+      {% for opt in ["24h", "48h", "7d", "30d"] %}
+      <option value="{{ opt }}" {% if since == opt %}selected{% endif %}>{{ opt }}</option>
+      {% endfor %}
+    </select>
+    <noscript><button type="submit">go</button></noscript>
+  </form>
+</div>
+
+<div class="grid cols-3" style="margin-bottom:14px">
+  {{ stat("events", counts.events) }}
+  {{ stat("entities", counts.entities) }}
+  {{ stat("facts", counts.facts) }}
+  {{ stat("linked facts", counts.linked_facts, muted=(counts.linked_facts == 0)) }}
+  {{ stat("lessons", counts.lessons) }}
+  {{ stat("documents", counts.documents) }}
+  {{ stat("open queue", counts.queue_open) }}
+</div>
+
+{% if counts.linked_facts == 0 and counts.facts %}
+<div class="card" style="margin-bottom:14px;border-color:var(--warn)">
+  <p class="small" style="margin:0">
+    <span class="warn">No fact connects two entities yet.</span>
+    Every one of the {{ counts.facts }} current facts points at a text literal, so
+    the graph has no paths to trace. New extractions will link their objects as
+    entities; run <code>cortex rebuild --from 0</code> to re-extract the existing log.
+  </p>
+</div>
+{% endif %}
+
+<div class="grid cols-wide">
+  <section class="card">
+    <p class="label">Actions by agent</p>
+    {% if d.actions_by_agent %}
+      {% for agent, items in d.actions_by_agent | dictsort %}
+      <div style="margin-bottom:12px">
+        <div class="row" style="gap:7px;margin-bottom:4px">
+          {{ agent_chip(agent) }}<span class="dimmer small">{{ items | length }}</span>
+        </div>
+        <ul style="margin:0;padding-left:18px">
+          {% for it in items[:6] %}
+          <li class="small dim" style="margin-bottom:3px">
+            {{ it.summary[:120] }}{% if it.summary | length > 120 %}…{% endif %}
+            {% if it.outcome %}<span class="ok">— {{ it.outcome }}</span>{% endif %}
+            <a class="dimmer" href="/activity?agent={{ agent | urlencode }}">E#{{ it.event_id }}</a>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endfor %}
+    {% else %}{{ empty("No actions in this window.") }}{% endif %}
+  </section>
+
+  <section class="card">
+    <p class="label">New decisions</p>
+    {% if d.new_decisions %}
+    <div class="stack" style="gap:8px">
+      {% for x in d.new_decisions %}
+      <div>
+        <a href="/decisions"><b>{{ x.adr }}</b></a> {{ x.title }}
+        <div class="small dim">→ {{ x.choice }} {{ project_tag(x.project) }}
+          {{ agent_chip(x.agent) }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}{{ empty("No new decisions.") }}{% endif %}
+
+    <p class="label" style="margin-top:16px">New lessons</p>
+    {% if d.new_lessons %}
+    <div class="stack" style="gap:6px">
+      {% for l in d.new_lessons[:8] %}
+      <p class="quote small" style="margin:0">{{ l.statement[:220] }}{% if l.statement | length > 220 %}…{% endif %}</p>
+      {% endfor %}
+      <a class="small" href="/knowledge?tab=lessons">all lessons →</a>
+    </div>
+    {% else %}{{ empty("No new lessons.") }}{% endif %}
+  </section>
+
+  <section class="card">
+    <p class="label">Facts changed</p>
+    {% if d.new_facts or d.superseded_facts %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>subject</th><th>predicate</th><th>object</th><th></th></tr></thead>
+        <tbody>
+          {% for f in d.new_facts[:12] %}
+          <tr>
+            <td>{{ entity_link(f.subject) }}</td>
+            <td class="dim">{{ f.predicate }}</td>
+            <td class="dim clamp-2">{{ f.object }}</td>
+            <td class="nowrap"><span class="ok small">new</span></td>
+          </tr>
+          {% endfor %}
+          {% for f in d.superseded_facts[:8] %}
+          <tr>
+            <td>{{ entity_link(f.subject) }}</td>
+            <td class="dim">{{ f.predicate }}</td>
+            <td class="dimmer clamp-2"><s>{{ f.object }}</s></td>
+            <td class="nowrap"><span class="warn small">superseded</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}{{ empty("No fact changes in this window.") }}{% endif %}
+  </section>
+
+  <section class="card">
+    <p class="label">Queue · {{ queue | length }}</p>
+    {% if queue %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>title</th><th>kind</th><th>status</th><th>claimed by</th></tr></thead>
+        <tbody>
+          {% for i in queue[:14] %}
+          <tr>
+            <td>{{ i.title }}</td>
+            <td class="nowrap {% if i.kind == 'adjudication' %}warn{% else %}dim{% endif %}">{{ i.kind }}</td>
+            <td class="nowrap dim">{{ i.status }}</td>
+            <td class="nowrap dim">{{ i.claimed_by or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if queue | length > 14 %}<a class="small" href="/queue">full board →</a>{% endif %}
+    {% else %}{{ empty("Queue is empty.") }}{% endif %}
+
+    {% if d.open_questions %}
+    <p class="label" style="margin-top:16px">Open questions</p>
+    <ul style="margin:0;padding-left:18px">
+      {% for q in d.open_questions %}
+      <li class="small dim">{{ q.title }} {{ agent_chip(q.agent) }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

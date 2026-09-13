@@ -128,6 +128,14 @@ case "$cmd" in
     api POST /v1/brain_capture_url "{\"url\":\"$url\",\"note\":$note}" ;;
   entities)  api GET "/v1/brain_entities${1:+?query=$1}" ;;
   facts-about) api GET "/v1/brain_facts_about?entity=$1" ;;
+  map)       api GET "/v1/brain_map${1:+?project=$1}" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+st=d['stats']
+print(f\"{st['entities']} entities, {st['docs']} docs, {st['links']} links, {st['clusters']} regions ({st['method']})\")
+for c in d['clusters'][:15]:
+    print(f\"  {c['size']:3d}  {c['name']}\")
+" ;;
   graph)     api GET "/v1/brain_graph${1:+?project=$1}" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
@@ -144,6 +152,23 @@ print('open the dashboard for the full picture: /graph')" ;;
   queue-claim)   api POST /v1/brain_queue_claim "{\"item_id\":\"$1\"}" ;;
   queue-complete) api POST /v1/brain_queue_complete "{\"item_id\":\"$1\"}" ;;
   agents)    api GET /v1/brain_agents ;;
+  tools)     api GET "/v1/brain_tools${1:+?agent_id=$1}" ;;
+  declare-tools)
+    # brain declare-tools ripgrep Docker "cortex:mcp_server"
+    tools="[]"
+    if [ $# -gt 0 ]; then
+      tools=$(python3 -c '
+import json, sys
+out = []
+for a in sys.argv[1:]:
+    name, _, kind = a.partition(":")
+    item = {"name": name}
+    if kind:
+        item["kind"] = kind
+    out.append(item)
+print(json.dumps(out))' "$@")
+    fi
+    api POST /v1/brain_declare_tools "{\"tools\":$tools}" ;;
   health)    api GET /healthz ;;
   help|-h|--help|*) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac

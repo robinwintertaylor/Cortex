@@ -1,28 +1,78 @@
 {% extends "base.html" %}
+{% from "_macros.html" import empty, agent_chip, project_tag, entity_link, ts %}
+{% block title %}Cortex — search{% endblock %}
+
 {% block content %}
-<form class="inline" method="get" action="/search">
-  <input class="wide" type="text" name="q" placeholder="search the brain…" value="{{ q }}">
-  <select name="mode">
-    {% for m in ["hybrid","keyword","semantic","rerank"] %}
-      <option value="{{ m }}" {% if mode == m %}selected{% endif %}>{{ m }}</option>
+<div class="page-head">
+  <h2>Search</h2>
+  <p class="lede">Across events, facts, notes, documents and lessons at once.</p>
+  {% if q %}<span class="spacer"></span>
+  <span class="pill"><b>{{ results | length }}</b> results</span>{% endif %}
+</div>
+
+<form class="filters" method="get" action="/search">
+  <input type="search" name="q" value="{{ q }}" placeholder="search the brain…"
+         style="min-width:240px;flex:1" autofocus>
+  <label for="f-mode">mode</label>
+  <select id="f-mode" name="mode">
+    {% for m in ["hybrid", "keyword", "semantic", "rerank"] %}
+    <option value="{{ m }}" {% if mode == m %}selected{% endif %}>{{ m }}</option>
     {% endfor %}
   </select>
-  <button>search</button>
+  <label for="f-type">type</label>
+  <select id="f-type" name="type">
+    <option value="">all</option>
+    {% for t in ["event", "fact", "note", "document", "lesson"] %}
+    <option value="{{ t }}" {% if filters.type == t %}selected{% endif %}>{{ t }}</option>
+    {% endfor %}
+  </select>
+  <label for="f-agent">agent</label>
+  <select id="f-agent" name="agent">
+    <option value="">all</option>
+    {% for a in agents %}
+    <option value="{{ a }}" {% if filters.agent == a %}selected{% endif %}>{{ a }}</option>
+    {% endfor %}
+  </select>
+  <label for="f-project">project</label>
+  <select id="f-project" name="project">
+    <option value="">all</option>
+    {% for p in projects %}
+    <option value="{{ p }}" {% if filters.project == p %}selected{% endif %}>{{ p }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">search</button>
 </form>
-{% for r in results %}
-<div class="card">
-  <div>
-    <span class="tag">{{ r.type }}</span>
-    {% if r.url %}<a style="color:var(--accent)" href="{{ r.url }}">{{ r.title }}</a>
-    {% else %}<b>{{ r.title }}</b>{% endif %}
-    <span class="score">score {{ r.score }} · {{ r.id }}</span>
-  </div>
-  <div class="dim">{{ r.snippet[:220] }}</div>
-  <div class="score">{{ r.provenance.agent }} · {{ r.provenance.ts[:19] }} ·
-    {% if r.status == "active" %}<span class="ok">active</span>{% else %}<span class="bad">{{ r.status }}</span>{% endif %}
-  </div>
+
+{% if results %}
+<div class="stack">
+  {% for r in results %}
+  <article class="card">
+    <div class="row" style="gap:8px">
+      <span class="tag">{{ r.type }}</span>
+      {% if r.type == "fact" and r.subject %}
+        {{ entity_link(r.subject) }}<span class="dim">{{ r.predicate }} {{ r.object }}</span>
+      {% elif r.url %}
+        <a href="{{ r.url }}">{{ r.title }}</a>
+      {% else %}
+        <b>{{ r.title }}</b>
+      {% endif %}
+      <span class="spacer"></span>
+      <span class="dimmer small mono-num">{{ "%.3f" | format(r.score) }}</span>
+    </div>
+    {% if r.snippet %}<p class="dim small clamp-2" style="margin:6px 0 0">{{ r.snippet[:260] }}</p>{% endif %}
+    <div class="row small dimmer" style="gap:8px;margin-top:6px">
+      {{ agent_chip(r.provenance.agent) }}
+      {{ project_tag(r.project) }}
+      {{ ts(r.provenance.ts) }}
+      {% if r.status == "active" %}<span class="ok">active</span>
+      {% elif r.status %}<span class="warn">{{ r.status }}</span>{% endif %}
+    </div>
+  </article>
+  {% endfor %}
 </div>
+{% elif q %}
+<div class="card">{{ empty("No results for “" ~ q ~ "”.") }}</div>
 {% else %}
-{% if q %}<p class="dim">no results for “{{ q }}”</p>{% endif %}
-{% endfor %}
+<div class="card">{{ empty("Type a query, or press / from anywhere.") }}</div>
+{% endif %}
 {% endblock %}

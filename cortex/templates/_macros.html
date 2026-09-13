@@ -1,0 +1,53 @@
+{# Shared building blocks. Every page composes from these so a card, a badge or
+   an agent chip looks identical wherever it appears. #}
+
+{# fact kind → colour. Matches graph.py KIND_COLORS so an edge and a badge for
+   the same kind are the same colour. #}
+{% set KIND_COLORS = {
+  "decided": "#e0af68", "lesson": "#bb9af7", "owner": "#7dcfff",
+  "extracted": "#9ece6a", "observed": "#565f73", "doc": "#41a6b5",
+} %}
+
+{% set TYPE_COLORS = {
+  "agent": "#7aa2f7", "tool": "#9ece6a", "tech": "#e0af68",
+  "concept": "#bb9af7", "project": "#bb9af7", "person": "#7dcfff",
+  "other": "#f7768e", "untyped": "#565f73", "doc": "#41a6b5",
+  "note": "#41a6b5", "document": "#41a6b5",
+} %}
+
+{% macro kind_badge(kind) %}
+<span class="badge" style="background:{{ KIND_COLORS.get(kind, '#565f73') }}">{{ kind }}</span>
+{% endmacro %}
+
+{% macro type_dot(etype) %}
+<span class="dot" style="background:{{ TYPE_COLORS.get(etype, '#f7768e') }}"></span>
+{% endmacro %}
+
+{% macro agent_chip(agent) %}
+<span class="agent-chip"><span class="dot"></span>{{ agent or "unknown" }}</span>
+{% endmacro %}
+
+{% macro stat(key, value, muted=False) %}
+<div class="stat">
+  <div class="k">{{ key }}</div>
+  <div class="v{% if muted %} muted{% endif %}">{{ value }}</div>
+</div>
+{% endmacro %}
+
+{% macro empty(text) %}
+<p class="empty">{{ text }}</p>
+{% endmacro %}
+
+{# Entities are addressed by name throughout the UI — one link macro keeps the
+   URL shape in a single place. #}
+{% macro entity_link(name, etype=None) %}
+<a href="/entity/{{ name | urlencode }}">{% if etype %}{{ type_dot(etype) }}{% endif %}{{ name }}</a>
+{% endmacro %}
+
+{% macro project_tag(project) %}
+{% if project %}<span class="tag plain">{{ project }}</span>{% endif %}
+{% endmacro %}
+
+{% macro ts(value, length=19) %}
+<span class="dimmer small mono-num">{{ (value or "")[:length] | replace("T", " ") }}</span>
+{% endmacro %}

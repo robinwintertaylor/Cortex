@@ -44,10 +44,11 @@ except for minting your key:
 ## Tool surface (identical over MCP, REST, and the `brain` shell wrapper)
 
 `brain_context` · `brain_search` · `brain_recent` · `brain_digest` ·
-`brain_read` · `brain_graph` (knowledge-graph view) · `brain_entities` ·
-`brain_facts_about` · `brain_supersede_fact` (owner only) · `brain_note` ·
-`brain_log_action` · `brain_log_decision` · `brain_lesson` ·
-`brain_capture_url` · `brain_queue_add/claim/complete` · `brain_agents`
+`brain_read` · `brain_graph` (knowledge-graph view) · `brain_map` (semantic
+map) · `brain_entities` · `brain_facts_about` · `brain_supersede_fact` (owner
+only) · `brain_note` · `brain_log_action` · `brain_log_decision` ·
+`brain_lesson` · `brain_capture_url` · `brain_queue_add/claim/complete` ·
+`brain_agents` · `brain_declare_tools` / `brain_tools`
 
 REST mirrors every tool 1:1 (`POST /v1/brain_log_decision`,
 `GET /v1/brain_digest?since=48h&fmt=md`, …) with `Authorization: Bearer

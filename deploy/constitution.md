@@ -9,7 +9,13 @@
 
 1. **AT SESSION START (before planning):** call `brain_context` for the active
    project and `brain_recent(limit 20)`. Acknowledge what other agents already
-   did — do not redo or contradict their work.
+   did — do not redo or contradict their work. Also call `brain_declare_tools`
+   with the tools and MCP servers you can reach — plain names are fine
+   (`["ripgrep", "Docker"]`), or objects with `kind` (`mcp_server`, `app`,
+   `cli`, `service`), `server` and `version` when you know them. The
+   declaration replaces your previous one, so report your *current* toolset.
+   This is what lets facts about tools point at a real entity instead of a bare
+   string — and it tells other agents what you can actually do.
 2. **BEFORE non-trivial choices:** run `brain_search("<topic>")` — do not
    re-decide decided things; if a decision exists and is active, follow it or
    write a superseding decision first (with rationale).

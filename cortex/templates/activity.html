@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% from "_macros.html" import empty, agent_chip, project_tag, ts %}
+{% block title %}Cortex — activity{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h2>Activity</h2>
+  <p class="lede">The raw event log — every write, in order.</p>
+  <span class="spacer"></span>
+  <span class="pill"><b>{{ events | length }}</b> events</span>
+</div>
+
+<form class="filters" method="get" action="/activity">
+  <label for="f-agent">agent</label>
+  <select id="f-agent" name="agent">
+    <option value="">all</option>
+    {% for a in agents %}
+    <option value="{{ a }}" {% if filters.agent == a %}selected{% endif %}>{{ a }}</option>
+    {% endfor %}
+  </select>
+
+  <label for="f-kind">kind</label>
+  <select id="f-kind" name="kind">
+    <option value="">all</option>
+    {% for k in kinds %}
+    <option value="{{ k }}" {% if filters.kind == k %}selected{% endif %}>{{ k }}</option>
+    {% endfor %}
+  </select>
+
+  <label for="f-project">project</label>
+  <select id="f-project" name="project">
+    <option value="">all</option>
+    {% for p in projects %}
+    <option value="{{ p }}" {% if filters.project == p %}selected{% endif %}>{{ p }}</option>
+    {% endfor %}
+  </select>
+
+  <label for="f-since">since</label>
+  <input type="text" id="f-since" name="since" value="{{ filters.since }}" size="6">
+  <button type="submit">apply</button>
+  {% if filters.agent or filters.kind or filters.project %}
+  <a class="small dim" href="/activity">clear</a>
+  {% endif %}
+</form>
+
+<div class="card">
+  {% if events %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>when</th><th>agent</th><th>kind</th><th>project</th><th>what</th></tr>
+      </thead>
+      <tbody>
+        {% for e in events %}
+        <tr>
+          <td class="nowrap">{{ ts(e.ts, 16) }}</td>
+          <td class="nowrap">{{ agent_chip(e.agent) }}</td>
+          <td class="nowrap dim">{{ e.kind }}</td>
+          <td class="nowrap">{{ project_tag(e.project) }}</td>
+          <td>
+            {% if e.payload.title %}<b>{{ e.payload.title }}</b>{% endif %}
+            {% if e.payload.choice %}<span class="dim">→ {{ e.payload.choice }}</span>{% endif %}
+            {% if e.payload.summary %}
+            <div class="dim small clamp-2">{{ e.payload.summary[:180] }}</div>
+            {% endif %}
+            {% if e.payload.statement %}
+            <div class="dim small clamp-2">{{ e.payload.statement[:180] }}</div>
+            {% endif %}
+            {% if e.payload.outcome %}<span class="ok small">{{ e.payload.outcome }}</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}{{ empty("No events match these filters.") }}{% endif %}
+</div>
+{% endblock %}

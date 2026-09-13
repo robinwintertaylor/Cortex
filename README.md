@@ -41,7 +41,15 @@ cortex admin create-agent dsh --name "DSH" --harness dsh --role owner
 
 - API: `http://localhost:8738` — `/v1/*` REST, `/mcp` (streamable-HTTP MCP),
   `/v1/stream` SSE, `/hook/*` sinks, `/healthz`, `/metrics`
-- Dashboard: `http://localhost:8740` — timeline, hybrid search, decision browser, **knowledge-graph view** (`/graph`, vis-network vendored locally: entities as nodes, facts as edges, supersession dashed, click a node for its facts), queue/digest, agents
+- Dashboard: `http://localhost:8740` — organised by question, not by table:
+  **Briefing** (`/`, what changed and what is waiting), **Map** (`/map`, the
+  semantic map — every entity and document placed by embedding similarity, with
+  named regions and a live doc-link score floor), **Knowledge** (`/knowledge`,
+  entities · facts · lessons), **Entity** (`/entity/<name>`, the tracing hub:
+  outbound and inbound facts, linked docs, lessons, contributors, episodes),
+  Decisions, Documents, Activity, and Agents & tools. The older force-directed
+  **knowledge-graph view** stays at `/graph` (vis-network vendored locally) as
+  the local, relationship-shaped counterpart to the map's overview.
 - Librarian runs as its own compose service (embeds + extracts + consolidates)
 
 ## Layout
@@ -80,10 +88,11 @@ curl -s -H "Authorization: Bearer $KEY" 'http://localhost:8738/v1/brain_digest?s
 ```
 
 Every MCP tool mirrors these 1:1 (`brain_context`, `brain_search`, `brain_recent`,
-`brain_digest`, `brain_read`, `brain_graph`, `brain_note`, `brain_log_action`,
-`brain_log_decision`, `brain_lesson`, `brain_capture_url`, `brain_entities`,
-`brain_facts_about`, `brain_supersede_fact`, `brain_queue_add/claim/complete`,
-`brain_agents`). Tool names are stable across Brainstem/Cortex/Hive (NFR-8).
+`brain_digest`, `brain_read`, `brain_graph`, `brain_map`, `brain_note`,
+`brain_log_action`, `brain_log_decision`, `brain_lesson`, `brain_capture_url`,
+`brain_entities`, `brain_facts_about`, `brain_supersede_fact`,
+`brain_queue_add/claim/complete`, `brain_agents`, `brain_declare_tools`,
+`brain_tools`). Tool names are stable across Brainstem/Cortex/Hive (NFR-8).
 
 Agent harnesses pointed at this repo self-onboard via `AGENTS.md` — it
 explains the service, how to mint an identity, which deploy recipe to
@@ -119,6 +128,21 @@ The shared constitution (session protocol every agent follows) is
   subscribers); alert when `cortex_librarian_lag_seconds` > 1800.
 - **Purge:** the only sanctioned event purge is the audited
   `scripts/purge_events.py --confirm`.
+- **Semantic map:** the librarian recomputes coordinates whenever the embedded
+  point set changes; `cortex project-map --force` reprojects on demand. UMAP
+  ships via the `map` extra (in the image by default) and falls back to a
+  numpy-only PCA + k-means layout if absent — the map still renders, with
+  looser separation. Coordinates are a projection like everything else, so
+  `cortex rebuild --from 0` repopulates them.
+- **Tool registry:** agents declare their toolset at session start with
+  `brain_declare_tools` (see `deploy/constitution.md` §1). Declared, never
+  extracted — it exists to give the fact extractor a closed vocabulary, so a
+  `uses_tool` object resolves to a real entity instead of a bare string. A
+  declaration replaces that agent's previous one.
+- **Project names:** the event log is append-only, so historical rows keep
+  whatever project spelling they were written with. `cortex/projects.py` maps
+  alias → canonical at write time and expands back on read; override with
+  `CORTEX_PROJECT_ALIASES`.
 - **LLM setup (optional):** point `CORTEX_LLM_BASE_URL` at any
   OpenAI-compatible endpoint (DeepSeek API, ollama, LM Studio via
   `http://host.docker.internal:1234/v1`, OpenRouter free tiers — set

@@ -1,25 +1,60 @@
 {% extends "base.html" %}
+{% from "_macros.html" import empty, project_tag, ts %}
+{% block title %}Cortex — documents{% endblock %}
+
 {% block content %}
-<form class="inline" method="get" action="/documents" style="margin-bottom:12px">
-  <input type="text" name="project" placeholder="project filter (blank = all)" value="{{ project }}">
-  <button>filter</button>
+<div class="page-head">
+  <h2>Documents</h2>
+  <p class="lede">Files uploaded by any harness, stored byte-identical and searchable.</p>
+  <span class="spacer"></span>
+  <span class="pill"><b>{{ docs | length }}</b> files</span>
+</div>
+
+<form class="filters" method="get" action="/documents">
+  <label for="f-project">project</label>
+  <select id="f-project" name="project">
+    <option value="">all</option>
+    {% for p in projects %}
+    <option value="{{ p }}" {% if project == p %}selected{% endif %}>{{ p }}</option>
+    {% endfor %}
+  </select>
+  <input type="search" name="q" value="{{ q }}" placeholder="filename or title…">
+  <button type="submit">filter</button>
+  {% if project or q %}<a class="small dim" href="/documents">clear</a>{% endif %}
 </form>
+
 <div class="card">
-<table>
-  <tr><th>file</th><th>project</th><th>size</th><th>uploaded by</th><th>tags</th><th>when</th><th></th></tr>
-  {% for d in docs %}
-  <tr>
-    <td>{{ d.file.filename }}<div class="dim" style="font-size:11px">{{ d.file.mime_type or "unknown type" }}</div></td>
-    <td>{% if d.project %}<span class="tag">{{ d.project }}</span>{% endif %}</td>
-    <td class="dim">{{ "%.1f"|format(d.file.size_bytes / 1024) }} KB</td>
-    <td class="dim">{{ d.author }}</td>
-    <td>{% for t in d.tags %}<span class="tag">{{ t }}</span>{% endfor %}</td>
-    <td class="dim">{{ d.ts[:19] if d.ts else "" }}</td>
-    <td><a href="/documents/{{ d.id }}/download">download</a></td>
-  </tr>
+  {% if docs %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>file</th><th>project</th><th class="num">size</th>
+        <th>uploaded by</th><th>tags</th><th>when</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for d in docs %}
+        <tr>
+          <td>
+            {{ d.file.filename }}
+            <div class="dimmer small">{{ d.file.mime_type or "unknown type" }}</div>
+          </td>
+          <td class="nowrap">{{ project_tag(d.project) }}</td>
+          {# size_bytes is nullable — formatting it unguarded used to 500 the page #}
+          <td class="num dim nowrap">
+            {% if d.file.size_bytes %}{{ "%.1f" | format(d.file.size_bytes / 1024) }} KB
+            {% else %}—{% endif %}
+          </td>
+          <td class="dim nowrap">{{ d.author }}</td>
+          <td>{% for t in d.tags %}<span class="tag plain">{{ t }}</span>{% endfor %}</td>
+          <td class="nowrap">{{ ts(d.ts) }}</td>
+          <td class="nowrap"><a href="/documents/{{ d.id }}/download">download</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% else %}
-  <tr><td colspan="7" class="dim">no documents uploaded yet — brain_upload_file is available to every harness</td></tr>
-  {% endfor %}
-</table>
+  {{ empty("No documents match — brain_upload_file is available to every harness.") }}
+  {% endif %}
 </div>
 {% endblock %}

@@ -7,6 +7,7 @@
   cortex admin revoke ID
   cortex export --markdown --out DIR    Obsidian-compatible export
   cortex rebuild --from 0               replay the log into fresh projections
+  cortex project-map [--force]          recompute semantic map coordinates
   cortex sweep URLS.txt                 capture a list of URLs (cron)
   cortex serve / dashboard              run the services (compose normally does)
 """
@@ -96,6 +97,21 @@ async def cmd_export(args) -> int:
     return 0
 
 
+async def cmd_project_map(args) -> int:
+    from . import mapproj
+    from .db import get_pool
+    from .librarian.worker import project_map
+
+    n = await project_map(force=args.force)
+    pool = await get_pool()
+    await pool.close()
+    if n == 0:
+        print("map already current (use --force to reproject anyway).")
+    else:
+        print(f"projected {n} points using {mapproj.method()}.")
+    return 0
+
+
 async def cmd_rebuild(args) -> int:
     from .db import get_pool
     from .librarian.worker import rebuild
@@ -174,6 +190,10 @@ def main(argv: list[str] | None = None) -> int:
     rb = sub.add_parser("rebuild", help="replay log into fresh projections")
     rb.add_argument("--from", dest="from_id", default="0")
 
+    pm = sub.add_parser("project-map", help="recompute semantic map coordinates")
+    pm.add_argument("--force", action="store_true",
+                    help="reproject even when every point already has coordinates")
+
     sw = sub.add_parser("sweep", help="capture a list of URLs from a file")
     sw.add_argument("urls")
     sw.add_argument("--agent", default="sweep")
@@ -191,8 +211,13 @@ def main(argv: list[str] | None = None) -> int:
         "admin": {
             "genkey": cmd_genkey, "create-agent": cmd_create_agent,
             "list-agents": cmd_list_agents, "revoke": cmd_revoke,
-        }.get(args.admin),
+        # getattr, not args.admin: argparse only sets the nested subparser's
+        # dest when `admin` actually ran, so reading it directly raised
+        # AttributeError for every other subcommand — rebuild and migrate
+        # included.
+        }.get(getattr(args, "admin", None)),
         "export": cmd_export, "rebuild": cmd_rebuild,
+        "project-map": cmd_project_map,
         "sweep": cmd_sweep, "serve": cmd_serve, "dashboard": cmd_dashboard,
     }
     h = handlers.get(args.cmd)

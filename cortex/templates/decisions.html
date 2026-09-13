@@ -1,26 +1,61 @@
 {% extends "base.html" %}
+{% from "_macros.html" import empty, agent_chip, project_tag, entity_link, ts %}
+{% block title %}Cortex — decisions{% endblock %}
+
 {% block content %}
-{% for d in decisions %}
-<div class="card">
-  <div>
-    <span class="tag">{{ d.adr }}</span>
-    <b>{{ d.title }}</b>
-    {% if d.status == "active" %}<span class="ok">→ {{ d.choice }} (active)</span>
-    {% else %}<span class="bad">(superseded)</span>{% endif %}
-  </div>
-  <div class="score">{{ d.agent }} · {{ d.project or "" }} · {{ d.ts }}</div>
-  {% if d.chain %}
-  <div class="dim" style="margin-top:6px">supersession chain:</div>
-  <ol style="margin:4px 0">
-    {% for f in d.chain %}
-    <li class="dim">{{ f.subject }} {{ f.predicate }} <b>{{ f.object }}</b>
-      {% if f.status == "active" %}<span class="ok">current</span>{% else %}<span class="bad">superseded {{ f.valid_to[:10] }}</span>{% endif %}
-    </li>
+<div class="page-head">
+  <h2>Decisions</h2>
+  <p class="lede">What was decided, by whom, and whether it still holds.</p>
+  <span class="spacer"></span>
+  <span class="pill"><b>{{ decisions | selectattr("status", "equalto", "active") | list | length }}</b> active</span>
+</div>
+
+<form class="filters" method="get" action="/decisions">
+  <label for="f-project">project</label>
+  <select id="f-project" name="project" onchange="this.form.submit()">
+    <option value="">all</option>
+    {% for p in projects %}
+    <option value="{{ p }}" {% if project == p %}selected{% endif %}>{{ p }}</option>
     {% endfor %}
-  </ol>
-  {% endif %}
+  </select>
+  <noscript><button type="submit">apply</button></noscript>
+</form>
+
+{% if decisions %}
+<div class="stack">
+  {% for d in decisions %}
+  <article class="card">
+    <div class="row" style="gap:8px">
+      <span class="tag">{{ d.adr }}</span>
+      <b>{{ d.title }}</b>
+      <span class="spacer"></span>
+      {% if d.status == "active" %}
+      <span class="ok small">active</span>
+      {% else %}
+      <span class="warn small">superseded</span>
+      {% endif %}
+    </div>
+    <p style="margin:8px 0 6px">→ {{ d.choice }}</p>
+    <div class="row small dimmer" style="gap:8px">
+      {{ agent_chip(d.agent) }}{{ project_tag(d.project) }}{{ ts(d.ts) }}
+    </div>
+
+    {% if d.chain | length > 1 %}
+    <p class="label" style="margin-top:12px">Supersession chain</p>
+    <ol style="margin:0;padding-left:20px">
+      {% for f in d.chain %}
+      <li class="small {% if f.status == 'superseded' %}dimmer{% else %}dim{% endif %}">
+        {{ entity_link(f.subject) }} <span class="dimmer">{{ f.predicate }}</span>
+        {% if f.status == "superseded" %}<s>{{ f.object }}</s>
+        {% else %}<b>{{ f.object }}</b> <span class="ok">current</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+  </article>
+  {% endfor %}
 </div>
 {% else %}
-<p class="dim">no decisions recorded yet</p>
-{% endfor %}
+<div class="card">{{ empty("No decisions recorded yet.") }}</div>
+{% endif %}
 {% endblock %}

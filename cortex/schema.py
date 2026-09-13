@@ -184,6 +184,55 @@ STATEMENTS_TEMPLATE = [
       ts       TIMESTAMPTZ NOT NULL DEFAULT now()
     )
     """,
+    # ── semantic map coordinates (FR-13 dashboard) ───────────────────────────
+    # Cached 2-D projection of the embedding columns above, recomputed by the
+    # librarian (cortex/mapproj.py). A projection of a projection: dropping
+    # these columns costs nothing but a recompute, and `cortex rebuild` repopulates
+    # them. map_cluster is the region id; NULL/-1 means "not in a region".
+    "ALTER TABLE entities ADD COLUMN IF NOT EXISTS map_x REAL",
+    "ALTER TABLE entities ADD COLUMN IF NOT EXISTS map_y REAL",
+    "ALTER TABLE entities ADD COLUMN IF NOT EXISTS map_cluster INT",
+    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS map_x REAL",
+    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS map_y REAL",
+    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS map_cluster INT",
+    # named regions, rewritten wholesale on each projection run
+    """
+    CREATE TABLE IF NOT EXISTS map_clusters(
+      id       INT PRIMARY KEY,
+      name     TEXT NOT NULL,
+      size     INT NOT NULL,
+      x        REAL NOT NULL,
+      y        REAL NOT NULL,
+      radius   REAL NOT NULL,
+      computed TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+    """,
+    # ── tool registry (declared, not extracted) ──────────────────────────────
+    # Which MCP servers / apps / CLIs an agent reports having, declared at
+    # session start via brain_declare_tools. A projection of `tool_declaration`
+    # events like everything else — never written directly.
+    #
+    # This exists to give `uses_tool` facts a closed vocabulary to resolve
+    # against: tools are one of the few naturally enumerable sets in the graph,
+    # so registering them turns tool references from free text into real
+    # entity→entity edges (see facts.add_fact's obj_entity).
+    """
+    CREATE TABLE IF NOT EXISTS tools(
+      id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      agent          TEXT NOT NULL REFERENCES agents(id),
+      name           TEXT NOT NULL,
+      tool_kind      TEXT NOT NULL DEFAULT 'mcp_server',  -- mcp_server|app|cli|service
+      server         TEXT,
+      version        TEXT,
+      entity_id      UUID REFERENCES entities(id) ON DELETE SET NULL,
+      first_declared TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_declared  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      event_id       BIGINT REFERENCES events(id),
+      UNIQUE (agent, name)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS tools_name_idx ON tools (lower(name))",
+    "CREATE INDEX IF NOT EXISTS tools_agent_idx ON tools (agent)",
     # ── notify trigger for SSE (FR-9) ────────────────────────────────────────
     """
     CREATE OR REPLACE FUNCTION cortex_notify_event() RETURNS trigger AS $$

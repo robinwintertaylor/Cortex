@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% from "_macros.html" import empty %}
+{% block title %}Cortex — map{% endblock %}
+{% block main_class %}wide{% endblock %}
+{% block extra_head %}
+<style>
+  /* map-only chrome; everything structural comes from cortex.css .bench */
+  .thresh-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 8px; font-size: 11.5px; color: var(--dim);
+  }
+  .thresh-head .val { color: var(--warn); font-size: 13px; font-variant-numeric: tabular-nums; }
+  #hist { display: block; width: 100%; height: 52px; }
+  #t-range { width: 100%; margin: 0; accent-color: var(--warn); background: transparent; padding: 0; }
+  .readout { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; font-size: 11.5px; color: var(--dim); }
+  .readout b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .readout .cut { color: var(--ok); }
+  .grp { display: flex; flex-direction: column; gap: 9px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .legend-row { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--dim); }
+  .d-name { font-size: 15px; margin: 0 0 6px; line-height: 1.35; word-break: break-word; }
+  .nbr { display: flex; flex-direction: column; gap: 1px; margin-top: 4px; }
+  .nbr button {
+    display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
+    background: none; border-radius: 4px; padding: 4px 6px;
+    color: var(--dim); font-size: 11.5px;
+  }
+  .nbr button:hover { background: var(--sunk); color: var(--text); }
+  .nbr .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nbr .sc { margin-left: auto; color: var(--dimmer); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h2>Semantic map</h2>
+  <p class="lede">Position is meaning — two points sit together because their embeddings do.</p>
+  <span class="spacer"></span>
+  <span class="pill"><b id="p-shown">0</b> of <b>{{ map.points | length }}</b> shown</span>
+  <span class="pill"><b>{{ map.stats.clusters }}</b> regions</span>
+  <span class="pill">{{ map.stats.method }}</span>
+  <a class="pill" href="/graph" title="The older force-directed view">graph view →</a>
+</div>
+
+{% if not map.points %}
+<div class="card">
+  {{ empty("No coordinates yet. The librarian projects the map once entities and
+            notes have embeddings — or run `cortex project-map --force`.") }}
+</div>
+{% else %}
+<div class="bench">
+  <aside class="rail">
+    <div class="grp">
+      <p class="label">Find</p>
+      <input type="search" id="q" placeholder="search this map…" autocomplete="off">
+      <p class="small dim" id="q-status">{{ map.stats.entities }} entities, {{ map.stats.docs }} documents.</p>
+    </div>
+
+    <div class="grp">
+      <p class="label">Show</p>
+      <div class="chips" id="type-chips"></div>
+    </div>
+
+    <div class="grp">
+      <p class="label">Doc → entity links</p>
+      <div class="seg" id="link-mode" role="group" aria-label="Link display mode">
+        <button type="button" data-mode="off" aria-pressed="false">off</button>
+        <button type="button" data-mode="selected" aria-pressed="true">selected</button>
+        <button type="button" data-mode="all" aria-pressed="false">all</button>
+      </div>
+      <div class="thresh-head"><span>score floor</span><span class="val" id="t-val">0.55</span></div>
+      <canvas id="hist" width="440" height="104"
+              aria-label="Distribution of doc-link similarity scores with the current floor marked"></canvas>
+      <input type="range" id="t-range" min="0.5" max="0.95" step="0.01" value="0.55"
+             aria-label="Minimum doc-link similarity score">
+      <div class="readout">
+        <span>links kept</span><b id="r-kept">0</b>
+        <span>per doc, avg</span><b id="r-avg">0</b>
+        <span>busiest doc</span><b id="r-max">0</b>
+        <span class="cut">discarded</span><b class="cut" id="r-cut">0</b>
+      </div>
+    </div>
+
+    <div class="grp">
+      <p class="label">Legend</p>
+      <div class="legend-row"><span class="dot" style="background:var(--t-tech)"></span>circle = entity</div>
+      <div class="legend-row"><span class="sq" style="background:var(--t-doc)"></span>square = document</div>
+      <div class="legend-row">size = facts + links on it</div>
+      <div class="legend-row">nebula = semantic region</div>
+      <p class="small dim" style="margin:0">Nothing here is force-directed, so the
+      layout is identical on every reload — you can learn where things live.</p>
+    </div>
+  </aside>
+
+  <div class="stage">
+    <canvas id="map" aria-label="Semantic map of Cortex entities and documents"></canvas>
+    <div class="stage-tip" id="tooltip"></div>
+    <div class="stage-hint">scroll to zoom · drag to pan · click a point</div>
+    <div class="stage-controls">
+      <button type="button" id="z-in" title="Zoom in" aria-label="Zoom in">+</button>
+      <button type="button" id="z-out" title="Zoom out" aria-label="Zoom out">-</button>
+      <button type="button" id="z-fit" title="Fit map" aria-label="Fit map"
+              style="font-size:10px;letter-spacing:.03em">fit</button>
+    </div>
+  </div>
+
+  <aside class="detail">
+    <div class="grp">
+      <p class="label">Selection</p>
+      <div id="detail-body">
+        <p class="small dimmer">Click any point to inspect it — its type, its project,
+        the facts recorded against it, and every document linked above the current
+        score floor.</p>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script id="mapdata" type="application/json">{{ map | tojson }}</script>
+<script src="/static/cortex-map.js"></script>
+{% endif %}
+{% endblock %}

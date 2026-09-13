@@ -10,6 +10,7 @@ from typing import Any
 import asyncpg
 
 from .util import dump_pg_json, slugify
+from .projects import canonical
 
 
 async def create_note(
@@ -40,7 +41,7 @@ async def create_note(
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING *
         """,
-        title, body, author, tags or [], project, note_type,
+        title, body, author, tags or [], canonical(project), note_type,
         source_url, fetch_date, event_id, derived, links or [],
         mime_type, size_bytes, sha256, storage_path, original_filename,
     )
@@ -142,7 +143,7 @@ async def add_lesson(
                 CASE WHEN $2::text IS NOT NULL THEN now() ELSE NULL END)
         RETURNING *
         """,
-        statement, verified_by, project, event_id, confidence,
+        statement, verified_by, canonical(project), event_id, confidence,
     )
 
 

@@ -147,6 +147,31 @@ async def brain_facts_about(entity: str, history: bool = False,
     return await service.facts_about(conn, agent, entity=entity, history=history)
 
 
+@router.post("/v1/brain_declare_tools")
+async def brain_declare_tools(body: dict, agent=Depends(require_agent),
+                              conn=Depends(get_conn)):
+    """Declare the tools/MCP servers this agent can reach."""
+    metrics.events_appended.labels("tool_declaration").inc()
+    return await service.declare_tools(
+        conn, agent, tools=body.get("tools", []),
+        session=body.get("session"), replace=bool(body.get("replace", True)))
+
+
+@router.get("/v1/brain_tools")
+async def brain_tools(agent_id: str | None = None, agent=Depends(require_agent),
+                      conn=Depends(get_conn)):
+    """The tool registry — one agent's, or every agent's."""
+    return await service.agent_tools(conn, agent, agent_id=agent_id)
+
+
+@router.get("/v1/brain_map")
+@router.post("/v1/brain_map")
+async def brain_map(project: str | None = None, limit: int = 2000,
+                    agent=Depends(require_agent), conn=Depends(get_conn)):
+    """Semantic map: entities + documents positioned by embedding similarity."""
+    return await service.map_view(conn, agent, project=project, limit=limit)
+
+
 @router.get("/v1/brain_graph")
 @router.post("/v1/brain_graph")
 async def brain_graph(project: str | None = None, history: bool = False,

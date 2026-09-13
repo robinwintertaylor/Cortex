@@ -25,6 +25,26 @@ def _norm_pred(pred: str) -> str:
     return p or "related_to"
 
 
+# A fact object only becomes a linked entity when it reads like a *name*, not a
+# proposition. The extractor's object_is_entity flag is necessary but not
+# sufficient — it happily marks whole clauses ("cortex local deployment is
+# verified") as entities, and every one of those mints a junk entity that then
+# anchors a junk region of the graph.
+_CLAUSE_MARKERS = (" is ", " are ", " was ", " were ", " has ", " have ",
+                   " had ", " will ", " would ", " should ", " must ",
+                   " can ", " does ", " did ", " uses ", " needs ")
+
+
+def is_entity_like(name: str | None) -> bool:
+    """True when `name` can stand as an entity, not a sentence about one."""
+    n = " ".join((name or "").strip().split())
+    if not n or len(n) > 60 or len(n.split()) > 5:
+        return False
+    if n.endswith((".", "!", "?")) or any(c in n for c in ",;:"):
+        return False
+    return not any(m in f" {n.lower()} " for m in _CLAUSE_MARKERS)
+
+
 async def get_or_create_entity(
     conn: asyncpg.Connection, name: str, etype: str | None = None
 ) -> asyncpg.Record:
@@ -80,6 +100,7 @@ async def supersede(
     kind: str = "owner",
     confidence: float = 0.9,
     embedding=None,
+    obj_entity: str | None = None,
 ) -> asyncpg.Record:
     """Close the old fact, add the successor — one transaction (AC1).
 
@@ -89,14 +110,17 @@ async def supersede(
         raise KeyError(f"fact {old_fact_id} not found")
     if old["valid_to"] is not None:
         raise ValueError(f"fact {old_fact_id} already superseded by {old['superseded_by']}")
+    obj_id = None
+    if obj_entity:
+        obj_id = (await get_or_create_entity(conn, obj_entity))["id"]
     new = await conn.fetchrow(
         """
-        INSERT INTO facts (subj, subj_name, pred, obj_text, episode_id,
+        INSERT INTO facts (subj, subj_name, pred, obj, obj_text, episode_id,
                            kind, confidence, rationale, embedding)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING *
         """,
-        old["subj"], old["subj_name"], old["pred"], new_value, episode_id,
+        old["subj"], old["subj_name"], old["pred"], obj_id, new_value, episode_id,
         kind, confidence, rationale, embedding,
     )
     await conn.execute(
@@ -195,6 +219,9 @@ def fact_to_dict(r: asyncpg.Record) -> dict[str, Any]:
         "subject": r["subj_name"],
         "predicate": r["pred"],
         "object": r["obj_text"],
+        # set when the object resolved to a real entity rather than a literal —
+        # the difference between a traversable edge and a dead-end leaf.
+        "object_entity_id": str(r["obj"]) if r["obj"] else None,
         "kind": r["kind"],
         "confidence": r["confidence"],
         "rationale": r["rationale"],

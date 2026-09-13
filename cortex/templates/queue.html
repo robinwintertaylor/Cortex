@@ -1,24 +1,40 @@
 {% extends "base.html" %}
+{% from "_macros.html" import empty, project_tag, ts %}
+{% block title %}Cortex — queue{% endblock %}
+
 {% block content %}
-<div class="card">
-  <b>Shared queue &amp; adjudication board</b>
-  <table style="margin-top:8px">
-    <tr><th>kind</th><th>title</th><th>status</th><th>by</th><th>claimed</th></tr>
-    {% for i in items %}
-    <tr>
-      <td><span class="tag">{{ i.kind }}</span></td>
-      <td>{{ i.title }}</td>
-      <td>{% if i.kind == "adjudication" %}<span class="warn">{{ i.status }}</span>{% else %}{{ i.status }}{% endif %}</td>
-      <td class="dim">{{ i.created_by }}</td>
-      <td class="dim">{{ i.claimed_by or "" }}</td>
-    </tr>
-    {% else %}
-    <tr><td colspan="5" class="dim">queue is empty</td></tr>
-    {% endfor %}
-  </table>
+<div class="page-head">
+  <h2>Queue</h2>
+  <p class="lede">Shared work and the adjudication board — contradictions the
+  librarian refused to resolve on its own.</p>
+  <span class="spacer"></span>
+  <a class="pill" href="/">← briefing</a>
 </div>
+
 <div class="card">
-  <b>Latest digest (7d)</b>
-  <pre class="digest">{{ digest_md }}</pre>
+  {% if items %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>kind</th><th>title</th><th>status</th><th>project</th>
+        <th>created by</th><th>claimed by</th>
+      </tr></thead>
+      <tbody>
+        {% for i in items %}
+        <tr>
+          <td class="nowrap">
+            <span class="tag {% if i.kind == 'adjudication' %}plain{% endif %}">{{ i.kind }}</span>
+          </td>
+          <td>{{ i.title }}</td>
+          <td class="nowrap {% if i.kind == 'adjudication' %}warn{% else %}dim{% endif %}">{{ i.status }}</td>
+          <td class="nowrap">{{ project_tag(i.project) }}</td>
+          <td class="dim nowrap">{{ i.created_by or "—" }}</td>
+          <td class="dim nowrap">{{ i.claimed_by or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}{{ empty("Queue is empty.") }}{% endif %}
 </div>
 {% endblock %}

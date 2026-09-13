@@ -12,10 +12,11 @@ from typing import Any
 
 import asyncpg
 
+from .projects import aliases_of, canonical
 from .util import parse_since, payload_dict
 
 KINDS = ("action", "decision", "lesson", "research", "note", "question",
-          "queue_claim", "queue_complete", "upload")
+          "queue_claim", "queue_complete", "upload", "tool_declaration")
 
 
 class InvalidKind(ValueError):
@@ -45,6 +46,9 @@ async def append(
     callers must never pass a self-declared agent through.
     """
     validate_kind(kind)
+    # normalise going forward; the log's existing rows keep their original
+    # spelling (no UPDATE path), so readers expand via projects.aliases_of.
+    project = canonical(project)
     payload_text = json.dumps(payload, default=str)
     row = await conn.fetchrow(
         """
@@ -71,7 +75,7 @@ def record_to_dict(r: asyncpg.Record) -> dict[str, Any]:
         "harness": r["harness"],
         "session": r["session"],
         "kind": r["kind"],
-        "project": r["project"],
+        "project": canonical(r["project"]),
         "payload": payload_dict(r["payload"]),
     }
 
@@ -93,8 +97,8 @@ async def recent(
         args.append(agent)
         where.append(f"agent = ${len(args)}")
     if project:
-        args.append(project)
-        where.append(f"project = ${len(args)}")
+        args.append(aliases_of(project))
+        where.append(f"project = ANY(${len(args)})")
     if kind:
         args.append(kind)
         where.append(f"kind = ${len(args)}")
@@ -136,8 +140,8 @@ async def fts_search(
         args.append(kind_not)
         where.append(f"kind <> ${len(args)}")
     if project:
-        args.append(project)
-        where.append(f"project = ${len(args)}")
+        args.append(aliases_of(project))
+        where.append(f"project = ANY(${len(args)})")
     if since:
         args.append(parse_since(since))
         where.append(f"ts >= ${len(args)}")

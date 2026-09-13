@@ -201,6 +201,38 @@ async def brain_facts_about(entity: str, history: bool = False) -> dict:
 
 
 @mcp.tool()
+async def brain_declare_tools(tools: list, replace: bool = True) -> dict:
+    """Declare the tools and MCP servers you can reach. Call this at session
+    start. Entries may be plain names or objects with name/kind/server/version;
+    kind is one of mcp_server, app, cli, service. Registering a tool lets facts
+    about it link to a real entity instead of a bare string."""
+    agent = _agent()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await service.declare_tools(conn, agent, tools=tools, replace=replace)
+
+
+@mcp.tool()
+async def brain_tools(agent_id: str | None = None) -> dict:
+    """What tools agents have declared — all of them, or one agent's."""
+    agent = _agent()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await service.agent_tools(conn, agent, agent_id=agent_id)
+
+
+@mcp.tool()
+async def brain_map(project: str | None = None, limit: int = 2000) -> dict:
+    """Semantic map of the brain: every entity and document placed by embedding
+    similarity, with named regions. Stable layout — good for orienting yourself
+    before a search."""
+    agent = _agent()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await service.map_view(conn, agent, project=project, limit=limit)
+
+
+@mcp.tool()
 async def brain_graph(project: str | None = None, history: bool = False,
                       limit: int = 300) -> dict:
     """Knowledge-graph view: entities as nodes, facts as edges. Shows subjects,

@@ -9,7 +9,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
 # Install the package + dependencies first for layer caching
 COPY pyproject.toml README.md ./
 COPY cortex ./cortex
-RUN pip install --no-cache-dir .
+# [map] pulls umap-learn/scikit-learn for the semantic map's projection. Drop
+# the extra for a leaner image — cortex/mapproj.py falls back to numpy-only PCA
+# and the map still renders, with looser clustering.
+RUN pip install --no-cache-dir ".[map]"
 
 # Non-root. /data/files is a named-volume mount point (docker-compose) for
 # uploaded file blobs — created + owned here so the volume inherits the
