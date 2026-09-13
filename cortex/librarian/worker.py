@@ -75,6 +75,22 @@ async def _project_tool_use(conn, event, payload) -> None:
                    episode_id=event["id"], kind="observed", confidence=0.7)
 
 
+async def _project_tool_declaration(conn, event, payload) -> None:
+    """Deterministic projection: tool_declaration event → tools registry rows.
+
+    Without this a rebuild would delete the registry and never restore it —
+    the table is a projection like any other and has to come back from the
+    log. Declarations replay in event-id order, so the newest one for each
+    agent ends up authoritative, which is what `replace` means."""
+    await tools_mod.declare(
+        conn,
+        agent=event["agent"],
+        tools=payload.get("tools") or [],
+        event_id=event["id"],
+        replace=bool(payload.get("replace", True)),
+    )
+
+
 async def _project_decision(conn, event, payload) -> None:
     """Deterministic projection: decision event → fact(subj, 'decided', choice).
     Runs with or without an LLM so rebuilds are exact (AC3)."""
@@ -226,6 +242,8 @@ async def process_event(conn: asyncpg.Connection, event, agent_role: str = "agen
         await _project_decision(conn, event, payload)
     elif event["kind"] == "lesson":
         await _project_lesson(conn, event, payload)
+    elif event["kind"] == "tool_declaration":
+        await _project_tool_declaration(conn, event, payload)
     elif event["kind"] == "action" and payload.get("tool_name"):
         # hook/auto-captured tool use → graph edges (agent uses_tool tool)
         await _project_tool_use(conn, event, payload)
@@ -561,6 +579,17 @@ async def rebuild(from_id: int = 0) -> None:
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # queue.fact_id references facts(id), so it has to be cleared
+            # *before* the facts go — deleting only the open adjudications
+            # left every resolved one still holding an FK, which made
+            # `DELETE FROM facts` fail outright on any brain where an
+            # adjudication had ever been settled.
+            await conn.execute(
+                "DELETE FROM queue WHERE kind = 'adjudication' AND status = 'open'")
+            # resolved adjudications are history worth keeping, but their
+            # fact_id points at a row that is about to stop existing (replay
+            # mints new uuids), so the reference is dropped rather than the row
+            await conn.execute("UPDATE queue SET fact_id = NULL WHERE fact_id IS NOT NULL")
             await conn.execute("DELETE FROM facts")
             await conn.execute("DELETE FROM doc_links")  # ON DELETE CASCADE would also catch this
             await conn.execute("DELETE FROM entities")
@@ -573,7 +602,6 @@ async def rebuild(from_id: int = 0) -> None:
                 "UPDATE notes SET embedding = NULL, llm_linked_at = NULL, "
                 "map_x = NULL, map_y = NULL, map_cluster = NULL")
             await conn.execute("UPDATE events SET embedding = NULL")
-            await conn.execute("DELETE FROM queue WHERE kind = 'adjudication' AND status = 'open'")
         total = await conn.fetchval("SELECT count(*) FROM events WHERE id >= $1", from_id)
         log.info("rebuild: replaying %s events from id %s", total, from_id)
         done = 0
