@@ -184,6 +184,10 @@ STATEMENTS_TEMPLATE = [
       ts       TIMESTAMPTZ NOT NULL DEFAULT now()
     )
     """,
+    # set once the librarian's entity-typing pass has considered an entity
+    # (whatever the outcome) — the one-shot marker that stops an untypeable
+    # name being re-sent to the LLM every cycle, mirroring notes.llm_linked_at.
+    "ALTER TABLE entities ADD COLUMN IF NOT EXISTS llm_typed_at TIMESTAMPTZ",
     # ── semantic map coordinates (FR-13 dashboard) ───────────────────────────
     # Cached 2-D projection of the embedding columns above, recomputed by the
     # librarian (cortex/mapproj.py). A projection of a projection: dropping

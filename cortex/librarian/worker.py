@@ -22,6 +22,7 @@ from .. import mapproj, metrics, notes as notes_mod, queue as queue_mod, tools a
 from ..config import get_config
 from ..db import get_pool, migrate
 from ..embeddings import embed
+from ..projects import canonical
 from ..util import payload_dict
 from ..facts import (
     add_fact,
@@ -39,6 +40,10 @@ log = get_logger(__name__)
 # predicates whose object is expected to name a tool, so it is worth checking
 # the registry even when the extractor did not flag it as an entity
 _TOOL_PREDS = {"uses_tool", "uses", "runs_on", "built_with", "depends_on"}
+
+# _project_decision falls back to this when a decision event carries neither a
+# project nor a title, so it ends up in `entities` as a subject like any other.
+DECISION_SUBJECT_FALLBACK = "the project"
 
 
 def _payload(event) -> dict:
@@ -98,7 +103,7 @@ async def _project_decision(conn, event, payload) -> None:
     title = str(payload.get("title") or "").strip()
     if not choice:
         return
-    subject = str(payload.get("project") or title or "the project")
+    subject = str(payload.get("project") or title or DECISION_SUBJECT_FALLBACK)
     rationale = str(payload.get("rationale") or "")
     existing = await current_facts_for_pred(conn, subject, "decided")
     new = consolidation.NewFact(
@@ -460,11 +465,105 @@ async def _one_cycle(conn, *, refresh_map: bool = True) -> int:
     if get_config().llm_enabled:
         await _llm_link_pending_notes(conn)
 
+    # type whatever extraction left untyped, before the map so newly typed
+    # entities render in their real colour rather than the untyped slate
+    await _type_untyped_entities(conn)
+
     # last: the map projects whatever the passes above just produced
     if refresh_map:
         await _refresh_map(conn)
 
     return len(rows)
+
+
+ENTITY_TYPE_BATCH = 20
+
+
+async def _deterministic_etype(conn, name: str, projects: set[str]) -> str | None:
+    """Type an entity from what the brain already knows for certain.
+
+    Free, exact, and stable across rebuilds — unlike the LLM fallback, this
+    gives the same answer every time, so it runs first and the model only sees
+    what genuinely needs a judgement call.
+    """
+    if await tools_mod.resolve(conn, name):
+        return "tool"
+    is_agent = await conn.fetchval(
+        "SELECT 1 FROM agents WHERE lower(id) = lower($1) OR lower(name) = lower($1)",
+        name)
+    if is_agent:
+        return "agent"
+    if (canonical(name) or "").strip().lower() in projects:
+        return "project"
+    # _project_decision uses a decision's own title as the fact subject when
+    # the event carries no project, so decision titles land in `entities`
+    # looking like things. They are not, and the LLM reliably mistypes them —
+    # it read "it: use qdrant" as tech and "bletchley db hosting" as a tool.
+    # The origin is knowable exactly, so decide it here instead of asking.
+    if name.strip().lower() == DECISION_SUBJECT_FALLBACK:
+        return "other"
+    is_decision_title = await conn.fetchval(
+        "SELECT 1 FROM events WHERE kind = 'decision' "
+        "AND lower(payload->>'title') = lower($1) LIMIT 1", name)
+    if is_decision_title:
+        return "other"
+    return None
+
+
+async def _type_untyped_entities(conn) -> int:
+    """Fill in entities.etype where extraction left it NULL.
+
+    A quarter of this brain's entities had no type, so they all rendered in the
+    same muted slate and no type filter could reach them. Registered tools,
+    registered agents and known projects resolve deterministically; whatever is
+    left goes to the LLM in one batch.
+
+    llm_typed_at marks a row as *considered* regardless of outcome, so a name
+    the model can't place is not re-sent every cycle — the same one-shot shape
+    as notes.llm_linked_at. With no LLM configured the deterministic half still
+    runs and the rest simply stays untyped until one is.
+    """
+    rows = await conn.fetch(
+        "SELECT id, name, summary FROM entities "
+        "WHERE etype IS NULL AND llm_typed_at IS NULL "
+        "ORDER BY id LIMIT $1", ENTITY_TYPE_BATCH)
+    if not rows:
+        return 0
+
+    project_rows = await conn.fetch(
+        "SELECT DISTINCT project FROM events WHERE project IS NOT NULL AND project <> ''")
+    projects = {(canonical(r["project"]) or "").strip().lower() for r in project_rows}
+
+    typed, remaining = 0, []
+    for r in rows:
+        etype = await _deterministic_etype(conn, r["name"], projects)
+        if etype:
+            await conn.execute(
+                "UPDATE entities SET etype = $1, llm_typed_at = now() WHERE id = $2",
+                etype, r["id"])
+            typed += 1
+        else:
+            remaining.append(r)
+
+    if remaining and get_config().llm_enabled:
+        try:
+            mapping = await extraction.classify_entity_types(
+                [{"name": r["name"], "summary": r["summary"]} for r in remaining])
+            for r in remaining:
+                etype = mapping.get(r["name"])
+                if etype:
+                    await conn.execute(
+                        "UPDATE entities SET etype = $1 WHERE id = $2", etype, r["id"])
+                    typed += 1
+        except Exception:
+            log.exception("entity typing failed for %s entities", len(remaining))
+        finally:
+            await conn.execute(
+                "UPDATE entities SET llm_typed_at = now() WHERE id = ANY($1::uuid[])",
+                [r["id"] for r in remaining])
+    if typed:
+        log.info("typed %s entities (%s deterministic)", typed, len(rows) - len(remaining))
+    return typed
 
 
 async def _refresh_map(conn, *, force: bool = False) -> int:

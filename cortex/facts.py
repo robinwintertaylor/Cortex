@@ -14,6 +14,12 @@ import asyncpg
 from .events import append  # noqa: F401  (re-exported for convenience)
 
 
+# The closed vocabulary for entities.etype. graph.py's KNOWN_TYPES is the
+# rendering set and also carries "doc", which is synthetic (notes/files render
+# as nodes but are never entity rows) — this is what may actually be stored.
+ENTITY_TYPES = ("agent", "tool", "tech", "concept", "project", "person", "other")
+
+
 def _norm(text: str) -> str:
     return " ".join(text.strip().lower().split())
 

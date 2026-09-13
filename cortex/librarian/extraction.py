@@ -125,6 +125,60 @@ def normalize_doc_links(raw: dict[str, Any], candidates: list[str]) -> list[str]
     return picked
 
 
+ENTITY_TYPE_SYSTEM_PROMPT = """You are the Cortex librarian, typing entities in a knowledge graph.
+You are given entity names, some with a summary, and must assign each one a type.
+
+Return ONLY a JSON object with this exact shape:
+{"types": {"exact entity name": "agent|tool|tech|concept|project|person|other"}}
+
+Type guide:
+- agent   : an AI agent or harness that writes to the brain (claude-code, dsh, goose)
+- tool    : something an agent invokes — an MCP server, CLI, application or service
+- tech    : a technology, library, framework, protocol or data store
+- project : a named body of work
+- person  : a named human
+- concept : an idea, pattern, process, strategy or department
+- other   : anything else
+
+Rules:
+- Use only names that appear verbatim in the provided list.
+- NEVER invent a name that isn't in the list.
+- Give every name in the list exactly one type.
+- A name that reads as a sentence, a question or a decision title is not a
+  thing — type those "other"."""
+
+
+def normalize_entity_types(raw: dict[str, Any], names: list[str]) -> dict[str, str]:
+    """Keep only picks whose name matches a candidate and whose type is in the
+    closed vocabulary — same defensive spirit as normalize_doc_links()."""
+    from ..facts import ENTITY_TYPES
+
+    lookup = {n.strip().lower(): n for n in names}
+    out: dict[str, str] = {}
+    types = raw.get("types")
+    if not isinstance(types, dict):
+        return out
+    for name, etype in list(types.items())[:100]:
+        key = str(name).strip().lower()
+        value = str(etype).strip().lower()
+        if key in lookup and value in ENTITY_TYPES:
+            out[lookup[key]] = value
+    return out
+
+
+async def classify_entity_types(items: list[dict[str, Any]]) -> dict[str, str]:
+    """LLM type for each entity. Raises if the LLM is not configured (the
+    caller gates on cfg.llm_enabled)."""
+    if not items:
+        return {}
+    names = [i["name"] for i in items]
+    user = json.dumps({"entities": [
+        {"name": i["name"], "summary": (i.get("summary") or "")[:200]} for i in items
+    ]})
+    raw = await extract_json(ENTITY_TYPE_SYSTEM_PROMPT, user)
+    return normalize_entity_types(raw, names)
+
+
 async def suggest_doc_links(note, candidates: list[str]) -> list[str]:
     """LLM pick of which candidate entities a note's content relates to.
     Raises if the LLM is not configured (caller gates on cfg.llm_enabled)."""
