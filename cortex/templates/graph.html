@@ -75,7 +75,7 @@
   <label><input type="checkbox" id="cluster-toggle"> cluster by project</label>
   <div class="chip-row" id="harness-chips"><span class="chip-label">harness</span></div>
   <div class="chip-row" id="kind-chips"><span class="chip-label">type</span></div>
-  <span class="dim" id="graph-count" style="margin-left:auto">{{ graph.stats.entities }} entities · {{ graph.stats.facts }} facts</span>
+  <span class="dim" id="graph-count" style="margin-left:auto">{{ graph.stats.entities }} entities · {{ graph.stats.facts }} facts · {{ graph.stats.docs or 0 }} docs</span>
 </div>
 
 <div class="graph-shell">
@@ -93,6 +93,7 @@
         <div class="legend-title">Node shape = entity type</div>
         <div class="legend-row"><span style="color:#7aa2f7">★</span> agent / harness</div>
         <div class="legend-row"><span style="color:#f7768e">▭</span> value (literal)</div>
+        <div class="legend-row"><span style="color:#41a6b5">▤</span> doc / file</div>
         <div class="legend-row"><span style="color:#9ece6a">●</span> tool / tech / concept / other</div>
       </div>
       <div class="legend-block">
@@ -131,7 +132,7 @@ const data = {{ graph | tojson }};
 const TYPE_COLORS = {
   agent:  "#7aa2f7", tool: "#9ece6a", tech: "#e0af68",
   concept:"#bb9af7", project:"#bb9af7", person:"#7dcfff",
-  other:  "#f7768e", value: "#f7768e",
+  other:  "#f7768e", value: "#f7768e", doc: "#41a6b5",
 };
 function lighten(hex, amt) {
   const n = parseInt(hex.slice(1), 16);
@@ -182,6 +183,15 @@ function drawShapePath(ctx, group, x, y, r) {
     ctx.arcTo(x + s, y + s, x - s, y + s, rr);
     ctx.arcTo(x - s, y + s, x - s, y - s, rr);
     ctx.arcTo(x - s, y - s, x + s, y - s, rr);
+    ctx.closePath();
+  } else if (group === "doc") {
+    // page rectangle with a folded top-right corner — reads as "file" at a glance
+    const w = r * 0.8, h = r * 1.05, fold = r * 0.4;
+    ctx.moveTo(x - w, y - h);
+    ctx.lineTo(x + w - fold, y - h);
+    ctx.lineTo(x + w, y - h + fold);
+    ctx.lineTo(x + w, y + h);
+    ctx.lineTo(x - w, y + h);
     ctx.closePath();
   } else {
     ctx.arc(x, y, r, 0, Math.PI * 2);

@@ -47,6 +47,11 @@ class Config:
     # free tiers notably) reject it — set CORTEX_LLM_JSON_MODE=false to
     # disable (extraction then relies on defensive JSON parsing)
     llm_json_mode: bool = field(default_factory=lambda: _bool("CORTEX_LLM_JSON_MODE", True))
+    # a local reasoning model on modest hardware can take minutes per call
+    # (thinking tokens aren't visible progress) — 60s default suits hosted
+    # APIs; raise via CORTEX_LLM_TIMEOUT_SECONDS for slow local runtimes.
+    llm_timeout_seconds: float = field(default_factory=lambda: float(
+        os.environ.get("CORTEX_LLM_TIMEOUT_SECONDS", "60")))
 
     # embeddings — local ONNX (fastembed)
     embed_model: str = field(default_factory=lambda: os.environ.get("CORTEX_EMBED_MODEL", "BAAI/bge-m3"))

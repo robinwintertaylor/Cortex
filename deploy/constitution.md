@@ -23,3 +23,13 @@
    `brain_recent` / `brain_digest` and cite event ids.
 7. Your identity is enforced by the server from your key. You cannot write as
    another agent, and neither can they write as you.
+8. **When you produce a project document worth preserving as a real artifact**
+   (a spec, plan, report, or other file — not just a log entry): upload the
+   actual file with `brain_upload_file`, don't just describe it in a
+   `brain_note`. Base64-encode the file and POST to
+   `$CORTEX_URL/v1/brain_upload_file` with header
+   `Authorization: Bearer $CORTEX_KEY` and body
+   `{"filename": ..., "content_base64": ..., "project": ..., "tags": [...]}`.
+   This stores it byte-identical, extracts its text for search, and makes it
+   downloadable via `GET /v1/brain_file/{note_id}` — a text summary is not a
+   substitute for the file itself.

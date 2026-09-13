@@ -30,7 +30,7 @@ async def chat(messages: list[dict[str, str]], *, max_tokens: int = 2000,
     if json_mode and cfg.llm_json_mode:
         body["response_format"] = {"type": "json_object"}
     headers = {"Authorization": f"Bearer {cfg.llm_api_key}"} if cfg.llm_api_key else {}
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=cfg.llm_timeout_seconds) as client:
         r = await client.post(f"{cfg.llm_base_url}/chat/completions",
                               json=body, headers=headers)
         r.raise_for_status()
