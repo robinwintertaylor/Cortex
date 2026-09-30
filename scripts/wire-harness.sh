@@ -4,6 +4,7 @@
 #
 # Usage: scripts/wire-harness.sh <harness-id> [display-name]
 #   harness-id: cursor | vscode | claude-code | claude-desktop | goose | vibe | dsh
+#               | buzz-<agent>  (one per Buzz agent, e.g. buzz-fizz; harness=buzz)
 #
 # Example:
 #   scripts/wire-harness.sh cursor Cursor
@@ -20,8 +21,12 @@ if ! command -v docker >/dev/null; then
   echo "docker not found — run this on the Cortex host" >&2; exit 1
 fi
 
+# Buzz runs several agents per machine, each with its own id and key.
+harness="$h"
+case "$h" in buzz-*) harness=buzz ;; esac
+
 key=$(docker compose run --rm cortex cortex admin create-agent "$h" \
-        --name "$name" --harness "$h" | grep -o 'cx-[a-zA-Z0-9_-]*' | head -1)
+        --name "$name" --harness "$harness" | grep -o 'cx-[a-zA-Z0-9_-]*' | head -1)
 if [ -z "$key" ]; then
   echo "agent creation failed (already registered? re-run with a new id, or" \
        "check docker compose output above)" >&2; exit 1
@@ -62,6 +67,15 @@ EOF
 }
 
 Then add the AGENTS.md protocol from deploy/vscode/README.md to the workspace root.
+EOF
+    ;;
+  buzz-*)
+    cat <<EOF
+✓ agent '$h' created with key: $key
+
+Save "$h=$key" to ~/.config/cortex/agent-keys.key (answer y below).
+scripts/buzz-brain uses it for the Buzz agent whose display name slugs to
+'${h#buzz-}'. See deploy/buzz/README.md.
 EOF
     ;;
   claude-code|claude-desktop|goose|vibe|dsh)

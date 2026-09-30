@@ -113,7 +113,7 @@ One command per new harness (mints the key + prints the paste-ready config):
 | Scripts/cron | REST (`scripts/brain`, `cortex sweep`, `scripts/backup.sh`) |
 | Cursor | `deploy/cursor/` — MCP server in `mcp.json` + always-applied project rule (constitution-prompted logging) |
 | VS Code (Copilot) | `deploy/vscode/` — MCP server in `.vscode/mcp.json` + `AGENTS.md` protocol |
-| Buzz (P2) | `deploy/buzz/` — one-way digest bridge only |
+| Buzz | `deploy/buzz/` — per-agent `buzz-<name>` keys via `scripts/buzz-brain` (REST) + optional digest bridge |
 
 The shared constitution (session protocol every agent follows) is
 `deploy/constitution.md`.

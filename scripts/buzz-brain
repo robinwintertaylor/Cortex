@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""buzz-brain — Cortex client for Buzz agents (stdlib only, any OS).
+
+Buzz runs several agents (Fizz, Honey, ...) as Claude Code processes on one
+machine. They can't each get their own MCP header, so they reach Cortex over
+REST through this wrapper, which picks the right key per agent:
+
+  identity  CORTEX_AGENT if set, else "buzz-<slug of BUZZ_ACP_DISPLAY_NAME>"
+            (Buzz sets that env var per managed agent: "Fizz" -> buzz-fizz).
+            The key comes from CORTEX_KEY or the matching "id=cx-..." line in
+            ~/.config/cortex/agent-keys.key. The server still enforces
+            identity from the key, so the name only selects which key to send.
+  session   writes that accept a session get "buzz:<channel-uuid>" from
+            --channel or BUZZ_CHANNEL, so events trace back to the Buzz
+            conversation that caused them. An explicit "session" wins.
+
+Usage:
+  buzz-brain whoami                         agent id this process resolves to
+  buzz-brain check                          health + auth, no writes
+  buzz-brain [--channel UUID] <tool> [JSON | -]
+      buzz-brain brain_context '{"project": "cortex"}'
+      echo '{"query": "hook token"}' | buzz-brain brain_search -
+      buzz-brain --channel $CH brain_log_action '{"summary": "...", "outcome": "done"}'
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+URL = os.environ.get("CORTEX_URL", "http://localhost:8738").rstrip("/")
+TIMEOUT = 60
+
+# GET-only routes, plus brain_digest (only its GET form returns plain text for fmt=md).
+GET_TOOLS = {"brain_entities", "brain_facts_about", "brain_tools",
+             "brain_agents", "brain_queue", "brain_digest"}
+# Tools whose REST body accepts "session" (cortex/api/routes.py).
+SESSION_TOOLS = {"brain_log_action", "brain_log_decision", "brain_lesson",
+                 "brain_note", "brain_capture_url", "brain_upload_file",
+                 "brain_declare_tools"}
+
+
+def die(msg: str, code: int = 1) -> None:
+    print(f"buzz-brain: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def agent_id() -> str:
+    if os.environ.get("CORTEX_AGENT"):
+        return os.environ["CORTEX_AGENT"]
+    name = os.environ.get("BUZZ_ACP_DISPLAY_NAME", "")
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    if not slug:
+        die("can't tell which agent this is: set CORTEX_AGENT or run under Buzz "
+            "(BUZZ_ACP_DISPLAY_NAME)")
+    return f"buzz-{slug}"
+
+
+def resolve_key(agent: str) -> str:
+    if os.environ.get("CORTEX_KEY"):
+        return os.environ["CORTEX_KEY"]
+    kf = Path(os.environ.get("CORTEX_KEY_FILE")
+              or Path.home() / ".config" / "cortex" / "agent-keys.key")
+    if not kf.is_file():
+        die(f"no key file at {kf}; ask the owner to run "
+            f"scripts/wire-harness.sh buzz-<name> and add the line")
+    for line in kf.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k_id, _, key = line.partition("=")
+            if k_id.strip() == agent:
+                return key.strip()
+    die(f"no '{agent}=cx-...' line in {kf}; this agent has no Cortex key yet")
+    return ""  # unreachable
+
+
+def request(method: str, path: str, key: str, body: dict | None = None):
+    url = URL + path
+    data = None
+    if method == "GET" and body:
+        url += "?" + urllib.parse.urlencode(
+            {k: json.dumps(v) if isinstance(v, (list, dict)) else v
+             for k, v in body.items() if v is not None})
+    elif body is not None:
+        data = json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Authorization", f"Bearer {key}")
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            raw = r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        die(f"HTTP {e.code} on {path}: {e.read().decode('utf-8', 'replace')[:500]}", 3)
+    except urllib.error.URLError as e:
+        die(f"can't reach {URL}: {e.reason}", 2)
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return raw
+
+
+def main(argv: list[str]) -> int:
+    channel = os.environ.get("BUZZ_CHANNEL")
+    if argv[:1] == ["--channel"]:
+        if len(argv) < 2:
+            die("--channel needs a value")
+        channel, argv = argv[1], argv[2:]
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(__doc__)
+        return 0
+
+    agent = agent_id()
+    cmd = argv[0]
+    if cmd == "whoami":
+        print(agent)
+        return 0
+    key = resolve_key(agent)
+    if cmd == "check":
+        health = request("GET", "/healthz", key)
+        agents = request("GET", "/v1/brain_agents", key)
+        ids = [a.get("id") for a in (agents.get("agents", agents)
+                                     if isinstance(agents, dict) else agents)]
+        print(json.dumps({"agent": agent, "health": health,
+                          "registered": agent in ids}, indent=2))
+        return 0 if agent in ids else 1
+    if not cmd.startswith("brain_"):
+        die(f"unknown command {cmd!r} (tools are brain_*; see --help)")
+
+    raw = argv[1] if len(argv) > 1 else "{}"
+    if raw == "-":
+        raw = sys.stdin.read() or "{}"
+    try:
+        args = json.loads(raw)
+    except ValueError as e:
+        die(f"arguments must be a JSON object: {e}")
+    if not isinstance(args, dict):
+        die("arguments must be a JSON object")
+
+    if cmd in SESSION_TOOLS and channel and "session" not in args:
+        args["session"] = f"buzz:{channel}"
+
+    if cmd == "brain_read":
+        item = args.get("id") or args.get("item_id")
+        if not item:
+            die('brain_read needs {"id": "E-123"}')
+        out = request("GET", "/v1/brain_read/" + urllib.parse.quote(str(item), safe=""), key)
+    elif cmd in GET_TOOLS:
+        out = request("GET", f"/v1/{cmd}", key, args)
+    else:
+        out = request("POST", f"/v1/{cmd}", key, args)
+    print(out if isinstance(out, str) else json.dumps(out, indent=2, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    # Windows consoles default to a legacy code page; brain text is UTF-8.
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.exit(main(sys.argv[1:]))
